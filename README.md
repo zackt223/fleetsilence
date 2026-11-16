@@ -56,20 +56,12 @@ curl "http://localhost:8080/job-cover?depot=REG&at=2026-10-26T23:30:00Z&hours=24
       "K-22 is a pickup at Regina, has no other job during Tue Oct 27 07:55-09:25, and its tracker is reporting normally."
     ],
     "evidence": ["e33683614", "e78779377", "e97794714"]
-  }],
-  "notices": [],
-  "summary": {"jobs_in_window": 168, "at_risk": 2, "swap": 2, "keep": 0, "gap": 0}
+  }]
 }
 ```
 
 Times in `reasons` and `manager_action` are in the depot's local time, because that is how the manager
-reads a schedule. Everything else is UTC.
-
-Two fields go beyond the contract (the contract's own fields are untouched):
-
-- `notices` — things said **once** instead of once per job. A carrier outage appears here as a single
-  item listing the affected vehicles and jobs; so does a vehicle that is probably just in a dead zone.
-- `summary` — counts for the window.
+reads a schedule. Everything else is UTC. The response has the contract's fields and no others.
 
 ## How it decides
 
@@ -110,8 +102,9 @@ unexplained or inside an outage is never offered as a replacement).
 - `keep`: only for a camera fault that has not yet failed a remote reboot, on a job at least 3 h away.
   28 of 40 such faults in the case history were cleared by the first reboot.
 - `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or camera-less.
-- Carrier outage: nothing is moved. Vehicles on the affected carrier are not offered as replacements
-  until it is back.
+- Carrier outage: nothing is moved, and jobs on affected vehicles are not listed (the network is down, not
+  the vehicles). Vehicles on the affected carrier are not offered as replacements until it is back. The
+  one shared explanation is on each affected device's status.
 
 **Messy data, on purpose** (`fleetsilence/store.py`):
 

@@ -12,7 +12,8 @@ Rules built in here:
   visibly healthy - anything silent, unexplained or inside a carrier outage is
   never offered as a replacement.
 * When many vehicles are quiet for one outside reason (a carrier outage), no
-  jobs are moved; it is said once, in `notices`.
+  jobs are moved and those jobs are not listed: the network is down, not the
+  vehicles. Each device's status says so, with the same reason for all of them.
 """
 from collections import defaultdict
 
@@ -82,8 +83,7 @@ class JobCover:
         memo = {}
         assigned = defaultdict(list)      # replacement asset -> [(start, end)] handed out in this answer
         moved_to = {}                     # troubled asset -> replacement already chosen for it
-        items, watch = [], defaultdict(list)
-        counts = {"swap": 0, "keep": 0, "gap": 0}
+        items = []
 
         for job in jobs:
             asset = self.ref.assets.get(job.asset_id)
@@ -92,8 +92,6 @@ class JobCover:
             h = self.health(snap, job.asset_id, memo)
             problem = h.problem
             if not problem:
-                if h.soft:
-                    watch[job.asset_id].append(job)
                 continue
 
             issues = [i for i in (h.location_issue, h.video_issue) if i]
@@ -102,9 +100,8 @@ class JobCover:
             for i in issues:
                 evidence += [x for x in i.evidence if x not in evidence]
             slot = f"{self.clock.fmt(depot, job.start, at)}-{self.clock.fmt(depot, job.end, job.start)}"
-            item = {"job_id": job.job_id, "asset_id": job.asset_id, "start": iso(job.start), "end": iso(job.end),
-                    "job_type": job.job_type, "problem": problem, "decision": None, "swap_to": None,
-                    "manager_action": "", "reasons": reasons, "evidence": evidence}
+            item = {"job_id": job.job_id, "asset_id": job.asset_id, "problem": problem, "decision": None,
+                    "swap_to": None, "manager_action": "", "reasons": reasons, "evidence": evidence}
 
             lead_h = (job.start - at) / 3600
             v = h.video_issue
@@ -141,15 +138,9 @@ class JobCover:
                     item["manager_action"] = (
                         f"No replacement for {job.job_id} ({slot}). Reschedule it, or get {job.asset_id} fixed before then;"
                         f" otherwise it goes out {blind}.")
-            counts[item["decision"]] += 1
             items.append(item)
 
-        return {
-            "depot": depot, "at": iso(at), "hours": hours,
-            "jobs": items,
-            "notices": self._notices(snap, depot, watch, memo),
-            "summary": {"jobs_in_window": len(jobs), "at_risk": len(items), **counts},
-        }
+        return {"depot": depot, "at": iso(at), "hours": hours, "jobs": items}
 
     def _replacement(self, snap, job, asset, h, memo, assigned, previous):
         """Pick the replacement vehicle, or explain why there is none. Returns (asset_id, reason)."""
@@ -206,36 +197,3 @@ class JobCover:
         tail = " A camera-less van would not fix a recording problem, so none is offered." if fallback else ""
         return None, (f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
                       f" {detail}.{tail}")
-
-    def _notices(self, snap, depot, watch, memo):
-        """Things the manager should know once, not once per job."""
-        out = []
-        by_outage = defaultdict(list)
-        for asset_id, jobs in sorted(watch.items()):
-            h = memo[asset_id]
-            causes = {i.cause for i in h.soft}
-            if h.outage is not None and "carrier_outage" in causes:
-                by_outage[(h.outage.carrier, h.outage.depot)].append((asset_id, jobs))
-                continue
-            i = h.soft[0]
-            out.append({
-                "kind": "watch", "asset_ids": [asset_id], "job_ids": [j.job_id for j in jobs],
-                "likely_cause": i.cause, "decision": "keep",
-                "manager_action": f"No change for {asset_id} yet. Check again before its job starts.",
-                "reasons": list(i.reasons), "evidence": list(i.evidence),
-            })
-        for key, o in sorted(snap.outages().items()):
-            if o.depot != depot:
-                continue
-            hit = by_outage.get(key, [])
-            n = sum(len(j) for _, j in hit)
-            out.insert(0, {
-                "kind": "carrier_outage", "carrier": o.carrier, "depot": o.depot, "since": iso(o.start),
-                "devices_silent": len(o.serials), "asset_ids": [a for a, _ in hit],
-                "job_ids": [j.job_id for _, jobs in hit for j in jobs], "likely_cause": "carrier_outage", "decision": "keep",
-                "manager_action": (f"Do not move any jobs for this. {n} job(s) in the window are on affected vehicles; they run as"
-                                   f" planned and positions fill in when {o.carrier} is back. Vehicles on {o.carrier} are not"
-                                   " offered as replacements until then."),
-                "reasons": [snap.outage_reason(o)], "evidence": list(o.evidence),
-            })
-        return out

@@ -1,4 +1,4 @@
-"""GET /job-cover: swaps, gaps, keeps, and saying a carrier outage once."""
+"""GET /job-cover: swaps, gaps, and moving nothing for a carrier outage."""
 import unittest
 
 from fleetsilence.server import BadRequest
@@ -24,6 +24,9 @@ class SwapTest(unittest.TestCase):
         app.ingest({"events": power_loss("T-21", AT)})
         body = cover(app, AT)
         self.assertEqual({k: body[k] for k in ("depot", "at", "hours")}, {"depot": "MSS", "at": iso(AT), "hours": 24})
+        self.assertEqual(set(body), {"depot", "at", "hours", "jobs"})                 # exactly the contract's shape
+        self.assertEqual(set(body["jobs"][0]), {"job_id", "asset_id", "problem", "decision", "swap_to",
+                                                "manager_action", "reasons", "evidence"})
         (job,) = body["jobs"]
         self.assertEqual((job["job_id"], job["asset_id"], job["problem"], job["decision"], job["swap_to"]),
                          ("J-1", "K-1", "no_location", "swap", "K-2"))
@@ -175,16 +178,13 @@ class OutageTest(unittest.TestCase):
         lone.ingest({"events": [e for e in events if e["serial"] in ("T-1", "T-7", "T-8", "T-9")]})
         self.assertEqual(status(lone, "T-1", AT)["likely_cause"], "unknown")
 
-    def test_job_cover_moves_nothing_and_says_it_once(self):
-        app = self.app
-        body = cover(app, AT)
+    def test_job_cover_moves_nothing_for_the_outage(self):
+        body = cover(self.app, AT)
         affected = {f"V-{n}" for n in range(1, 7)}
-        self.assertFalse([j for j in body["jobs"] if j["asset_id"] in affected and j["decision"] in ("swap", "gap")])
-        outages = [n for n in body["notices"] if n["kind"] == "carrier_outage"]
-        self.assertEqual(len(outages), 1)
-        self.assertEqual((outages[0]["carrier"], outages[0]["devices_silent"]), ("Lakeline", 6))
-        self.assertEqual(set(outages[0]["asset_ids"]), affected)
-        self.assertTrue(outages[0]["reasons"] and outages[0]["evidence"])
+        self.assertFalse([j for j in body["jobs"] if j["asset_id"] in affected])
+        # ...and every affected device carries the same explanation.
+        reasons = {status(self.app, f"T-{n}", AT)["reasons"][0].split(". ", 1)[1] for n in range(1, 7)}
+        self.assertEqual(len(reasons), 1)
 
     def test_a_swap_for_another_reason_avoids_vehicles_on_the_dead_carrier(self):
         app = self.app
