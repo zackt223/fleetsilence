@@ -1,20 +1,27 @@
-"""Replay the data pack's telemetry through the service in-process and run the practice checkpoints.
+"""Replay the data pack's telemetry through the service and run the practice checkpoints.
 
-    python3 -I tools/replay.py PATH/TO/quiet-fleet-data-pack [--dump DIR]
+    python3 -I tools/replay.py PATH/TO/quiet-fleet-data-pack [--dump DIR] [--url http://localhost:8080]
+
+Without --url the service runs in-process (fast; used by the tests and for
+calibration). With --url the same events and checks go to a running service
+over HTTP, 5,000 events per POST /ingest, the way the exam does it.
 
 This is our own re-implementation of the practice checks (written from
-exam/PRACTICE.md and the contract), used by the tests and for calibration.
-It does not replace running the official exam tool over HTTP.
+exam/PRACTICE.md and the contract). It does not replace the official exam tool.
 """
 import glob
 import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fleetsilence import config                      # noqa: E402
+from fleetsilence.refdata import RefData             # noqa: E402
 from fleetsilence.server import App, BadRequest, NotFound  # noqa: E402
 from fleetsilence.timeutil import iso, parse_ts      # noqa: E402
 
@@ -23,6 +30,39 @@ CAUSES = {"none", "parked_normal", "sleeping_by_design", "cold_weather", "planne
           "carrier_outage", "power_loss", "camera_fault", "plan_paused", "device_swapped", "battery_low", "unknown"}
 PROBLEMS = {"no_location", "no_video", "both"}
 DECISIONS = {"swap", "keep", "gap"}
+
+
+class HttpApp:
+    """The same three calls as App, sent to a running service."""
+
+    def __init__(self, url, data_dir):
+        self.url = url.rstrip("/")
+        self.ref = RefData(data_dir)
+        self.store = None
+        self.slowest = {}
+
+    def _call(self, method, path, query=None, body=None):
+        url = self.url + path + ("?" + urllib.parse.urlencode({k: v[-1] for k, v in query.items()}) if query else "")
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+        t0 = time.perf_counter()
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                out = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"{method} {path} returned {e.code}: {e.read()[:200]!r}") from None
+        key = path if not path.startswith("/devices/") else "/devices/{serial}/status"
+        self.slowest[key] = max(self.slowest.get(key, 0), time.perf_counter() - t0)
+        return out
+
+    def ingest(self, body):
+        return self._call("POST", "/ingest", body=body)
+
+    def device_status(self, serial, query):
+        return self._call("GET", f"/devices/{urllib.parse.quote(serial)}/status", query)
+
+    def job_cover(self, query):
+        return self._call("GET", "/job-cover", query)
 
 
 def load_events(pack):
@@ -135,10 +175,10 @@ def run_check(app, c, at, unavailable):
     return errs, body
 
 
-def replay(pack, scenario=None, dump=None, on_checkpoint=None, batch_size=5000, log=print):
+def replay(pack, scenario=None, dump=None, on_checkpoint=None, batch_size=5000, log=print, url=None):
     """Stream the history, stopping at each checkpoint. Returns (app, [(checkpoint id, label, errors)])."""
     data = os.path.join(pack, "data")
-    app = App(data, config.load())
+    app = HttpApp(url, data) if url else App(data, config.load())
     with open(scenario or os.path.join(pack, "exam", "practice.json"), encoding="utf-8") as f:
         scen = json.load(f)
     cps = sorted(scen["checkpoints"], key=lambda c: c["at"])
@@ -148,7 +188,9 @@ def replay(pack, scenario=None, dump=None, on_checkpoint=None, batch_size=5000, 
         nonlocal batch, sent, slowest
         if batch:
             t0 = time.perf_counter()
-            app.ingest({"events": batch})
+            got = app.ingest({"events": batch})
+            if got != {"accepted": len(batch)}:
+                log(f"  note: sent {len(batch)} events, service answered {got}")
             slowest = max(slowest, time.perf_counter() - t0)
             sent += len(batch)
             batch = []
@@ -185,7 +227,9 @@ def replay(pack, scenario=None, dump=None, on_checkpoint=None, batch_size=5000, 
     flush()
     for cp in cps[i:]:
         checkpoint(cp)
-    log(f"\nstreamed {sent:,} events; slowest ingest batch {slowest:.2f}s; store: {app.store.stats}")
+    extra = f"store: {app.store.stats}" if app.store else "slowest response per endpoint (s): " + \
+        ", ".join(f"{k} {v:.2f}" for k, v in sorted(app.slowest.items()))
+    log(f"\nstreamed {sent:,} events; slowest ingest batch {slowest:.2f}s; {extra}")
     return app, results
 
 
@@ -193,8 +237,9 @@ def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     dump = sys.argv[sys.argv.index("--dump") + 1] if "--dump" in sys.argv else None
+    url = sys.argv[sys.argv.index("--url") + 1] if "--url" in sys.argv else None
     t0 = time.time()
-    _, results = replay(sys.argv[1], dump=dump)
+    _, results = replay(sys.argv[1], dump=dump, url=url)
     failed = [r for r in results if r[2]]
     print(f"{len(results) - len(failed)}/{len(results)} checks passed in {time.time() - t0:.0f}s")
     sys.exit(1 if failed else 0)

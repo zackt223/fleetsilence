@@ -131,6 +131,9 @@ class JobCover:
                         f"{target} is a {t.get('type')} at {snap.depot_name(depot)}{cam}, has no other job during {slot},"
                         " and its tracker is reporting normally.")
                     item["manager_action"] = f"Move {job.job_id} ({slot}, {job.job_type}) from {job.asset_id} to {target}."
+                    if why_not:      # second-best: tracked, but not recorded
+                        item["reasons"].append(why_not)
+                        item["manager_action"] += " It will be tracked but not recorded: no van with a working camera is free."
                 else:
                     item["decision"] = "gap"
                     item["reasons"].append(why_not)
@@ -153,7 +156,7 @@ class JobCover:
         cfg = self.cfg.jobcover
         need_camera = cfg["require_working_camera_for_camera_vans"] and bool(h.cameras)
         tally = defaultdict(int)
-        best = None
+        best = fallback = None
         for aid, row in self.ref.assets.items():
             if aid == job.asset_id or row.get("type") != asset.get("type") or row.get("depot") != asset.get("depot"):
                 continue
@@ -168,30 +171,41 @@ class JobCover:
             if not c.eligible:
                 tally["unhealthy"] += 1
                 continue
-            if need_camera and not c.cameras:
-                tally["no camera"] += 1
-                continue
             day = sum(1 for j in self.ref.jobs_by_asset.get(aid, []) if abs(j.start - job.start) < 12 * 3600)
             rank = (aid != previous,
                     cfg["prefer_same_use"] and row.get("use") != asset.get("use"),
                     day + len(assigned[aid]), aid)
+            if need_camera and not c.cameras:
+                tally["no camera"] += 1
+                if fallback is None or rank < fallback[0]:
+                    fallback = (rank, aid)
+                continue
             if best is None or rank < best[0]:
                 best = (rank, aid)
         if best:
             return best[1], ""
         kind = asset.get("type") or "vehicle"
+
+        def n(key, one, many):
+            return f"{tally[key]} {one if tally[key] == 1 else many}"
         parts = []
         if tally["busy"]:
-            parts.append(f"{tally['busy']} already have a job in that slot")
+            parts.append(n("busy", "already has", "already have") + " a job in that slot")
         if tally["unhealthy"]:
-            parts.append(f"{tally['unhealthy']} can't be seen or recorded themselves")
+            parts.append(n("unhealthy", "can't be seen or recorded itself", "can't be seen or recorded themselves"))
         if tally["outage"]:
-            parts.append(f"{tally['outage']} are on the carrier that is down")
+            parts.append(n("outage", "is", "are") + " on the carrier that is down")
         if tally["no camera"]:
-            parts.append(f"{tally['no camera']} are free but have no camera, so the job would go unrecorded")
+            parts.append(n("no camera", "is free but has", "are free but have") + " no camera")
         detail = "; ".join(parts) if parts else "there are none"
-        return None, (f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {tally['same type']} other"
-                      f" {kind}s, {detail}.")
+        others = f"{tally['same type']} other {kind}{'' if tally['same type'] == 1 else 's'}"
+        if fallback and h.location_issue:
+            # The vehicle can't be tracked at all. A tracked van without a camera beats sending the job out blind.
+            return fallback[1], (f"No {kind} with a working camera is free (of the {others}, {detail}),"
+                                 f" so the job moves to a camera-less {kind}: tracked, but not recorded.")
+        tail = " A camera-less van would not fix a recording problem, so none is offered." if fallback else ""
+        return None, (f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
+                      f" {detail}.{tail}")
 
     def _notices(self, snap, depot, watch, memo):
         """Things the manager should know once, not once per job."""

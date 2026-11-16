@@ -43,6 +43,15 @@ class Event:
         return self.ids[0][1]
 
 
+def _newer(e, cur):
+    """Is e at least as recent as cur? Device time first, then arrival; ties are broken by
+    event id so the answer never depends on the order batches happened to arrive in."""
+    if cur is None:
+        return True
+    a, b = (e.t, e.r), (cur.t, cur.r)
+    return a > b or (a == b and e.event_id >= cur.event_id)
+
+
 class Summary:
     """What is known about one device from its first n events (in received order)."""
     __slots__ = ("n", "last_contact", "last", "first", "first_position", "live_since", "latest", "rare")
@@ -63,8 +72,7 @@ class Summary:
         self.n += 1
         latest = self.latest
         key = e.type
-        cur = latest.get(key)
-        if cur is None or (e.t, e.r) >= (cur.t, cur.r):
+        if _newer(e, latest.get(key)):
             latest[key] = e
         if e.type in PLATFORM_TYPES:
             self.rare.append(e)
@@ -74,28 +82,24 @@ class Summary:
             self.live_since = e.r
         if self.last_contact is None or e.r > self.last_contact:
             self.last_contact = e.r
-        if self.last is None or (e.t, e.r) >= (self.last.t, self.last.r):
+        if _newer(e, self.last):
             self.last = e
         if self.first is None or e.t < self.first.t:
             self.first = e
         if e.type == "position" and (self.first_position is None or e.t < self.first_position.t):
             self.first_position = e
         if e.type in MOTION_TYPES:
-            cur = latest.get("motion")
-            if cur is None or (e.t, e.r) >= (cur.t, cur.r):
+            if _newer(e, latest.get("motion")):
                 latest["motion"] = e
-            if e.type in VIN_TYPES and e.payload.get("vin"):
-                cur = latest.get("vin")
-                if cur is None or (e.t, e.r) >= (cur.t, cur.r):
-                    latest["vin"] = e
+            if e.type in VIN_TYPES and e.payload.get("vin") and _newer(e, latest.get("vin")):
+                latest["vin"] = e
         elif e.type == "camera_status":
             if e.payload.get("status") == "storage_error":
                 self.rare.append(e)
         elif e.type in RARE_TYPES:
             self.rare.append(e)
         elif e.type in TAG_TYPES:
-            cur = latest.get("tag")
-            if cur is None or (e.t, e.r) >= (cur.t, cur.r):
+            if _newer(e, latest.get("tag")):
                 latest["tag"] = e
 
 
