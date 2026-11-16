@@ -8,7 +8,6 @@
 [server]
 host = "127.0.0.1"
 port = 8080                      # GIVEN: the contract says localhost:8080
-max_events_per_request = 5000    # GIVEN: contract batch size (larger batches are still accepted)
 
 [ingest]
 # A device clock is trusted only if it is not ahead of the platform clock by
@@ -16,12 +15,13 @@ max_events_per_request = 5000    # GIVEN: contract batch size (larger batches ar
 # Otherwise the event is ordered by received_at instead.
 clock_future_tolerance_s = 600   # CALIBRATED: no event in the history is ahead of received_at at all
 max_trusted_lateness_h = 24      # CALIBRATED: the latest buffered event arrived 90 min late; 24 h leaves room for a day-long outage
-backfill_lateness_s = 120        # CALIBRATED: 98.8 % of events arrive within 5 s; anything over 2 min came from a buffer
+backfill_lateness_s = 120        # CALIBRATED: 90 % of events arrive within 5 s and 98.8 % within 2 min; the rest came from a device's buffer
 
 [tracker]
 drive_quiet_min = 6              # CALIBRATED: positions come every 2.0 min (99.99th pct 2.05); 6 min = three missed in a row
+heartbeat_interval_min = 240     # GIVEN: "a heartbeat every 4 hours while it's off"
 heartbeat_late_min = 270         # GIVEN: "late after 4 hours 30 minutes with nothing"
-coverage_gap_max_min = 100       # CALIBRATED: 229 dead-zone silences lasted 21-92 min; beyond 100 min it is not a coverage gap
+coverage_gap_max_min = 100       # CALIBRATED: 221 dead-zone silences lasted 21-91 min; beyond 100 min it is not a coverage gap
 
 [swap]
 # A unit swapped mid-shift: the new tracker's first-ever position follows the old one's last.
@@ -29,21 +29,21 @@ handover_window_min = 10         # CALIBRATED: in all 5 mid-drive swaps the new 
 handover_distance_km = 3         # CALIBRATED: the two positions were 0.01-0.55 km apart
 
 [power]
-confirm_after_min = 35           # CALIBRATED: every harmless disconnect was restored within 32 min
-backup_window_min = 60           # CALIBRATED: the backup battery kept units talking 9-35 min; reports later than this mean power is back
+confirm_after_min = 35           # CALIBRATED: all 10 harmless disconnects were restored within 18-32 min; all 15 real ones sent low-voltage within 14 min
+backup_window_min = 60           # CALIBRATED: the backup battery kept units talking 9-34 min; reports later than this mean power is back
 
 [camera]
 quiet_min = 12                   # CALIBRATED: a recording camera reports every 5.0 min; 12 min = two missed in a row
 sleep_after_ignition_off_min = 15  # GIVEN: cameras sleep 15 min after ignition off
-wake_grace_min = 10              # CALIBRATED: cameras boot within about a minute of ignition on
+wake_grace_min = 10              # CALIBRATED: after a sleep, cameras boot a median 5 s after ignition on
 reboot_settle_min = 15           # CALIBRATED: a successful remote reboot shows "booting" within 1 min of the command
 
 [tag]
 # A-series and BX-series battery trackers.
-late_after_h = 25                # CALIBRATED: daily check-ins arrive 23.3-24.6 h apart; customers raised "missed today's check-in" at about 25 h
+late_after_h = 25                # CALIBRATED: daily check-ins arrive 23.3-24.7 h apart; customers raised "missed today's check-in" at about 25 h
 battery_low_pct = 10             # CALIBRATED: all 11 battery_low cases went quiet at 8-10 %; tags at 12 % and above kept reporting
 cold_low_c = -10                 # CALIBRATED: healthy tags only skipped check-ins on nights at -10 C or colder
-cold_max_missed_days = 5         # CALIBRATED: longest cold-weather silence in the history was 4 days
+cold_max_missed_days = 5         # CALIBRATED: the longest cold-weather silence in the history was 3 missed check-ins; 5 leaves a margin
 downtime_peer_fraction = 0.5     # CALIBRATED: all 12 landscaping trailers stopped on the same day (Oct 23)
 downtime_peer_min = 3
 

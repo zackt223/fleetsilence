@@ -226,39 +226,49 @@ class Snapshot:
     def outages(self):
         """Carrier outages in progress: {(carrier, depot): Outage}.
 
-        An outage is called when most trackers that were mid-drive on one
-        carrier at one depot went silent at about the same time. One vehicle in
-        a dead zone never qualifies; it takes a crowd."""
+        An outage is called when most trackers on one carrier at one depot that
+        were due to report have gone silent together: vehicles that were
+        mid-drive (due every 2 minutes) and, for an outage that starts when
+        nobody is on the road, parked vehicles whose 4-hourly heartbeat is
+        overdue. One vehicle in a dead zone never qualifies; it takes a crowd."""
         if self._outages is not None:
             return self._outages
         cfg = self.cfg.outage
         quiet = self.cfg.tracker["drive_quiet_min"] * 60
+        beat = self.cfg.tracker["heartbeat_interval_min"] * 60
+        overdue = self.cfg.tracker["heartbeat_late_min"] * 60
         window = cfg["cluster_window_min"] * 60
-        driving, silent = defaultdict(int), defaultdict(list)
+        driving, silent, late = defaultdict(int), defaultdict(list), defaultdict(list)
         for serial in self.trackers():
             s = self.summ(serial)
             if not s or s.last_contact is None or s.last_contact < self.at - cfg["lookback_h"] * 3600:
                 continue
-            if self.motion(s) != "driving" or self.power(s):
+            if self.power(s):
                 continue
             g = self.group(serial)
             if not g:
                 continue
-            driving[g] += 1
-            if self.at - s.last_contact > quiet:
-                silent[g].append((s.last_contact, serial))
+            if self.motion(s) == "driving":
+                driving[g] += 1
+                if self.at - s.last_contact > quiet:
+                    silent[g].append((s.last_contact, serial))
+            elif self.at - s.last_contact > overdue:
+                late[g].append((s.last_contact + beat, serial))     # when its missed heartbeat was due
         found = {}
-        for g, members in silent.items():
-            if len(members) < cfg["min_devices"]:
-                continue
-            mid = median(t for t, _ in members)
-            cluster = sorted((t, sn) for t, sn in members if abs(t - mid) <= window)
+        for g in set(silent) | set(late):
+            members = silent.get(g, [])
+            cluster = []
+            if members:
+                mid = median(t for t, _ in members)
+                cluster = sorted((t, sn) for t, sn in members if abs(t - mid) <= window)
             # Vehicles silent since long before this cluster are not part of it.
-            base = driving[g] - (len(members) - len(cluster))
-            if len(cluster) >= cfg["min_devices"] and len(cluster) / max(base, 1) >= cfg["min_fraction"]:
-                serials = [sn for _, sn in cluster]
+            base = driving[g] - (len(members) - len(cluster)) + len(late.get(g, []))
+            hit = cluster + sorted(late.get(g, []))
+            if len(hit) >= cfg["min_devices"] and len(hit) / max(base, 1) >= cfg["min_fraction"]:
+                serials = [sn for _, sn in hit]
                 evidence = self.ids(*[self.summ(sn).last for sn in serials[:6]])
-                found[g] = Outage(g[0], g[1], cluster[0][0], serials, base, evidence)
+                start = cluster[0][0] if cluster else min(t for t, _ in hit)
+                found[g] = Outage(g[0], g[1], start, serials, base, evidence)
         self._outages = found
         return found
 
@@ -279,9 +289,9 @@ class Snapshot:
         return self._earlier.outage_for(serial, expected_by)
 
     def outage_reason(self, o):
-        return (f"{len(o.serials)} of {o.driving} {o.carrier} trackers that were driving out of "
-                f"{self.depot_name(o.depot)} went silent together around {self.when(o.depot, o.start)}; "
-                f"other carriers kept reporting. The network is down, not the vehicles.")
+        return (f"{len(o.serials)} of the {o.driving} {o.carrier} trackers at {self.depot_name(o.depot)} that were due"
+                f" to report (driving, or with a heartbeat due) have been silent together since about"
+                f" {self.when(o.depot, o.start)}; other carriers kept reporting. The network is down, not the vehicles.")
 
     def depot_name(self, depot):
         return (self.cfg.depots.get(depot) or {}).get("name", depot)
@@ -423,11 +433,7 @@ class Snapshot:
                       f" {self.when(depot, o.first.t)}: the unit was swapped but the records still point here.",
                       f"The vehicle itself is visible through {other}; support should correct the device record.")
             return
-        if dev.get("status") == "removed":
-            a.set(QUIET, "device_swapped", 0.7, f"{heard}. The records show this unit was removed from {a.asset_id or 'its asset'}.")
-            return
-
-        expected_by = s.last_contact if mo == "driving" else s.last_contact + 4 * 3600
+        expected_by = s.last_contact if mo == "driving" else s.last_contact + cfg["heartbeat_interval_min"] * 60
         o = self.outage_for(a.serial, expected_by)
         if o:
             a.evidence = self.ids(last, limit=2) + [i for i in o.evidence if i not in a.evidence][:8]
@@ -436,12 +442,16 @@ class Snapshot:
                   "Nothing to fix on the vehicle; follow up with the carrier. Buffered positions should arrive when service returns.")
             return
 
+        if dev.get("status") == "removed":
+            a.set(QUIET, "device_swapped", 0.7, f"{heard}. The records show this unit was removed from {a.asset_id or 'its asset'}.")
+            return
+
         if mo == "driving":
             if gap <= cfg["coverage_gap_max_min"] * 60:
                 a.set(UNKNOWN, "coverage_gap", 0.6,
                       f"{heard} while driving, {duration(gap)} ago, with no power alert and no wider outage.",
-                      f"Most likely a dead zone: in the history these lasted up to about {cfg['coverage_gap_max_min'] - 8} min"
-                      " and the buffered positions arrived afterwards. Not yet long enough to call a fault.")
+                      "Most likely a dead zone: in the history these lasted up to an hour and a half and the buffered"
+                      f" positions arrived afterwards. It becomes a fault after {cfg['coverage_gap_max_min']} min.")
             else:
                 a.set(ACTION, "unknown", 0.5,
                       f"{heard} while driving and nothing for {duration(gap)}: longer than any coverage gap in the history"
@@ -449,7 +459,8 @@ class Snapshot:
                       "Treat the vehicle as not trackable until someone checks it.")
         else:
             a.set(ACTION, "unknown", 0.5,
-                  f"{heard}; a parked tracker should send a heartbeat every 4 h and it is now {duration(gap)} since the last one"
+                  f"{heard}; a parked tracker should send a heartbeat every {duration(cfg['heartbeat_interval_min'] * 60)}"
+                  f" and it is now {duration(gap)} since the last one"
                   f" (late after {duration(cfg['heartbeat_late_min'] * 60)}).",
                   "No power alert, outage or replacement unit explains it. Treat the vehicle as not trackable until someone checks it.")
 

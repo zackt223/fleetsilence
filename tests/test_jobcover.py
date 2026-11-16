@@ -158,6 +158,23 @@ class OutageTest(unittest.TestCase):
         app.ingest({"events": events})
         self.assertEqual(status(app, "T-1", AT)["likely_cause"], "coverage_gap")
 
+    def test_outage_at_night_is_seen_from_overdue_heartbeats(self):
+        """Nobody is driving. Lakeline vans' heartbeats stop arriving; Northwave vans' keep coming."""
+        app = make_app()
+        events = []
+        for n in range(1, 13):
+            last = AT - 5 * HOUR if n <= 6 else AT - HOUR
+            events += [ev(f"T-{n}", "ignition_off", AT - 9 * HOUR), ev(f"T-{n}", "heartbeat", last, {"battery_v": 12.5, "signal": 4})]
+        app.ingest({"events": events})
+        for n in range(1, 7):
+            s = status(app, f"T-{n}", AT)
+            self.assertEqual((s["state"], s["likely_cause"]), ("needs_action", "carrier_outage"), n)
+        self.assertEqual(status(app, "T-7", AT)["likely_cause"], "parked_normal")
+        # One overdue tracker on its own is not an outage.
+        lone = make_app()
+        lone.ingest({"events": [e for e in events if e["serial"] in ("T-1", "T-7", "T-8", "T-9")]})
+        self.assertEqual(status(lone, "T-1", AT)["likely_cause"], "unknown")
+
     def test_job_cover_moves_nothing_and_says_it_once(self):
         app = self.app
         body = cover(app, AT)
