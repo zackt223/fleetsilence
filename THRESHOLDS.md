@@ -21,7 +21,6 @@ is strong, because a wrong swap wastes a crew's time and erodes trust in the nex
 | `tracker.coverage_gap_max_min` | 100 | Calibrated | 221 mid-drive silences with no power alert: shortest 21 min, median 54, longest 91; each ended with the vehicle reporting again and its buffered positions arriving. Silence beyond 100 min is outside anything a dead zone produced, so it becomes `needs_action`. |
 | `power.confirm_after_min` | 35 | Calibrated | 25 power-disconnect alerts. 15 were real: each sent a backup-battery low-voltage alert 8–14 min later. 10 were harmless: each was restored after 18–32 min with no low-voltage alert. So: low-voltage alert, or 35 min without a restore, confirms a power loss. Waiting costs at most 14 minutes on a real one. |
 | `power.backup_window_min` | 60 | Calibrated | After a real disconnect the unit kept talking for 9–34 min on its backup battery. A unit still reporting an hour later has power again even if the restore message was lost (seen once). |
-| `swap.handover_window_min` / `handover_distance_km` | 10 / 3 | Calibrated | 7 unit swaps. In all 5 done mid-shift, the new unit's first position came exactly 2 min after the old unit's last, 0.01–0.55 km away. Its first VIN-bearing message only came 5–10 h later, and without this rule the van looks untracked for that long. |
 
 ## Carrier outages
 
@@ -30,10 +29,6 @@ is strong, because a wrong swap wastes a crew's time and erodes trust in the nex
 | `outage.min_devices` | 4 | Calibrated | Counting driving trackers silent together per carrier and depot: the two real outages peaked at 39 (Lakeline, Mississauga, Oct 12) and 31 (Northwave, Regina, Oct 27). On every other occasion in 28 days the most was 3. |
 | `outage.min_fraction` | 0.6 | Calibrated | In both outages 100 % of the driving trackers on that carrier at that depot went silent, while the other carrier and the other depot were untouched. 60 % leaves room for a vehicle that happens to be parked or on a roaming SIM. |
 | `outage.cluster_window_min` | 30 | Calibrated | On Oct 12 every affected tracker's last message arrived between 14:00 and 14:02 UTC. 30 min tolerates a ragged start. |
-
-Parked trackers whose heartbeat is overdue count as silent too, so an outage that starts when nobody is
-driving is still recognised. In the history no parked tracker was ever overdue without a power alert or a
-unit swap, so this adds no false positives there.
 
 Grouping is by carrier **and** depot because both outages were regional: Lakeline devices in Regina kept
 reporting while Lakeline was down in Mississauga.

@@ -5,7 +5,6 @@ normal, or because something is wrong - and what is the most likely reason?
 The trade-off for the fleet manager is that a missed real problem is worse
 than a false alarm, so unexplained silence is never called "expected".
 """
-import math
 from collections import defaultdict
 from statistics import median
 
@@ -126,16 +125,10 @@ class Snapshot:
         return self._trackers
 
     def vin_map(self):
-        """asset_id -> trackers that are demonstrably on that asset, whatever the records say.
-
-        The records are not always what is on the vehicle. Proof, strongest first:
-        1. the tracker's own messages carry the asset's VIN;
-        2. an unassigned tracker whose first-ever position follows, within minutes and a
-           short distance, the last position of that asset's recorded tracker: a unit
-           swapped mid-shift, before its first VIN-bearing message has arrived."""
+        """asset_id -> trackers whose own messages carry that asset's VIN.
+        The records are not always what is on the vehicle; the VIN is."""
         if self._vin_map is None:
             m, rev = defaultdict(list), {}
-            orphans = []
             for serial in self.trackers():
                 s = self.summ(serial)
                 v = s.latest.get("vin") if s else None
@@ -143,21 +136,6 @@ class Snapshot:
                 if asset:
                     m[asset].append(serial)
                     rev[serial] = asset
-                elif s and s.first_position and not (self.ref.devices.get(serial) or {}).get("asset_id"):
-                    orphans.append((serial, s))
-            cfg = self.cfg.swap
-            for serial, s in orphans:
-                for old in self.trackers():
-                    rec = self.ref.devices.get(old) or {}
-                    o = self.summ(old)
-                    p = o.latest.get("position") if o else None
-                    if (not rec.get("asset_id") or rev.get(old, rec["asset_id"]) != rec["asset_id"] or p is None
-                            or not 0 <= s.first.t - o.last.t <= cfg["handover_window_min"] * 60):
-                        continue
-                    if _km(p.payload, s.first_position.payload) <= cfg["handover_distance_km"]:
-                        m[rec["asset_id"]].append(serial)
-                        rev[serial] = rec["asset_id"]
-                        break
             self._vin_map, self._claimed = m, rev
         return self._vin_map
 
@@ -226,19 +204,15 @@ class Snapshot:
     def outages(self):
         """Carrier outages in progress: {(carrier, depot): Outage}.
 
-        An outage is called when most trackers on one carrier at one depot that
-        were due to report have gone silent together: vehicles that were
-        mid-drive (due every 2 minutes) and, for an outage that starts when
-        nobody is on the road, parked vehicles whose 4-hourly heartbeat is
-        overdue. One vehicle in a dead zone never qualifies; it takes a crowd."""
+        An outage is called when most trackers that were mid-drive on one
+        carrier at one depot went silent at about the same time. One vehicle in
+        a dead zone never qualifies; it takes a crowd."""
         if self._outages is not None:
             return self._outages
         cfg = self.cfg.outage
         quiet = self.cfg.tracker["drive_quiet_min"] * 60
-        beat = self.cfg.tracker["heartbeat_interval_min"] * 60
-        overdue = self.cfg.tracker["heartbeat_late_min"] * 60
         window = cfg["cluster_window_min"] * 60
-        driving, silent, late = defaultdict(int), defaultdict(list), defaultdict(list)
+        driving, silent = defaultdict(int), defaultdict(list)
         for serial in self.trackers():
             s = self.summ(serial)
             if not s or s.last_contact is None or s.last_contact < self.at - cfg["lookback_h"] * 3600:
@@ -248,27 +222,21 @@ class Snapshot:
             g = self.group(serial)
             if not g:
                 continue
-            if self.motion(s) == "driving":
-                driving[g] += 1
-                if self.at - s.last_contact > quiet:
-                    silent[g].append((s.last_contact, serial))
-            elif self.at - s.last_contact > overdue:
-                late[g].append((s.last_contact + beat, serial))     # when its missed heartbeat was due
+            if self.motion(s) != "driving":
+                continue
+            driving[g] += 1
+            if self.at - s.last_contact > quiet:
+                silent[g].append((s.last_contact, serial))
         found = {}
-        for g in set(silent) | set(late):
-            members = silent.get(g, [])
-            cluster = []
-            if members:
-                mid = median(t for t, _ in members)
-                cluster = sorted((t, sn) for t, sn in members if abs(t - mid) <= window)
+        for g, members in silent.items():
+            mid = median(t for t, _ in members)
+            cluster = sorted((t, sn) for t, sn in members if abs(t - mid) <= window)
             # Vehicles silent since long before this cluster are not part of it.
-            base = driving[g] - (len(members) - len(cluster)) + len(late.get(g, []))
-            hit = cluster + sorted(late.get(g, []))
-            if len(hit) >= cfg["min_devices"] and len(hit) / max(base, 1) >= cfg["min_fraction"]:
-                serials = [sn for _, sn in hit]
+            base = driving[g] - (len(members) - len(cluster))
+            if len(cluster) >= cfg["min_devices"] and len(cluster) / max(base, 1) >= cfg["min_fraction"]:
+                serials = [sn for _, sn in cluster]
                 evidence = self.ids(*[self.summ(sn).last for sn in serials[:6]])
-                start = cluster[0][0] if cluster else min(t for t, _ in hit)
-                found[g] = Outage(g[0], g[1], start, serials, base, evidence)
+                found[g] = Outage(g[0], g[1], cluster[0][0], serials, base, evidence)
         self._outages = found
         return found
 
@@ -289,9 +257,9 @@ class Snapshot:
         return self._earlier.outage_for(serial, expected_by)
 
     def outage_reason(self, o):
-        return (f"{len(o.serials)} of the {o.driving} {o.carrier} trackers at {self.depot_name(o.depot)} that were due"
-                f" to report (driving, or with a heartbeat due) have been silent together since about"
-                f" {self.when(o.depot, o.start)}; other carriers kept reporting. The network is down, not the vehicles.")
+        return (f"{len(o.serials)} of {o.driving} {o.carrier} trackers that were driving out of "
+                f"{self.depot_name(o.depot)} went silent together around {self.when(o.depot, o.start)}; "
+                f"other carriers kept reporting. The network is down, not the vehicles.")
 
     def depot_name(self, depot):
         return (self.cfg.depots.get(depot) or {}).get("name", depot)
@@ -420,8 +388,6 @@ class Snapshot:
             fixed = (self.ref.devices.get(other) or {}).get("asset_id") == a.asset_id and \
                 (self.ref.devices.get(other) or {}).get("status") == "active"
             a.evidence = self.ids(last, o.latest.get("vin"), o.first)
-            proof = (f"has been reporting {a.asset_id}'s VIN" if o.latest.get("vin") else
-                     f"picked up from the same spot {duration(max(0, o.first.t - last.t))} after this one stopped and has been reporting")
             a.detail["replaced_by"] = other
             if fixed:
                 a.set(QUIET, "device_swapped", 0.8,
@@ -429,7 +395,7 @@ class Snapshot:
                       " and the records already list it; this unit was replaced.")
             else:
                 a.set(ACTION, "device_swapped", 0.85,
-                      f"{heard}. A different tracker, {other}, {proof} since"
+                      f"{heard}. A different tracker, {other}, has been reporting {a.asset_id}'s VIN since"
                       f" {self.when(depot, o.first.t)}: the unit was swapped but the records still point here.",
                       f"The vehicle itself is visible through {other}; support should correct the device record.")
             return
@@ -659,13 +625,3 @@ class Snapshot:
             a.set(UNKNOWN, "unknown", 0.3,
                   f"Last heard {self.when(a.depot, s.last.t)}, {duration(gap)} ago; not enough is known about this"
                   " kind of device to say whether that is normal.")
-
-
-def _km(a, b):
-    """Rough distance in km between two {lat, lng} payloads (inf if either is unusable)."""
-    try:
-        dy = (a["lat"] - b["lat"]) * 111.0
-        dx = (a["lng"] - b["lng"]) * 111.0 * math.cos(math.radians(a["lat"]))
-        return math.hypot(dx, dy)
-    except (KeyError, TypeError):
-        return float("inf")

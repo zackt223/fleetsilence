@@ -1,4 +1,4 @@
-"""Reference files (assets, devices, schedule, weather, plan changes, case history).
+"""Reference files (assets, devices, schedule, weather, plan changes).
 
 Read once at startup from QF_DATA_DIR (default ./data). A missing or broken
 file never stops the service: it starts with whatever it could read.
@@ -44,7 +44,6 @@ class RefData:
         self.jobs_by_asset = defaultdict(list)
         self.weather = {}                      # (depot, 'YYYY-MM-DD' local) -> low_c
         self.plan_changes = []                 # rows, replayed as events at startup
-        self.reboot_stats = {}                 # camera firmware -> (fixed by remote reboot, all camera faults)
         self.depots = set()
         self._load()
 
@@ -79,15 +78,6 @@ class RefData:
             except (KeyError, ValueError):
                 continue
         self.plan_changes = _rows(self.folder, "plan_changes.csv")
-        fixed, total = defaultdict(int), defaultdict(int)
-        for r in _rows(self.folder, "support_cases.csv"):
-            if r.get("root_cause") != "camera_fault":
-                continue
-            fw = (self.devices.get(r.get("serial", "")) or {}).get("firmware", "")
-            for key in (fw, ""):
-                total[key] += 1
-                fixed[key] += r.get("action") == "remote_reboot"
-        self.reboot_stats = {k: (fixed[k], total[k]) for k in total}
 
     # ------------------------------------------------------------------ lookups
     def depot_of(self, asset_id):

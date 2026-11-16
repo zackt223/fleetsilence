@@ -79,7 +79,6 @@ class JobCover:
 
     def answer(self, depot, at, hours):
         snap = self.engine.snapshot(at)
-        cfg = self.cfg.jobcover
         jobs = self.ref.jobs_starting(depot, at, at + hours * 3600)
         memo = {}
         assigned = defaultdict(list)      # replacement asset -> [(start, end)] handed out in this answer
