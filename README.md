@@ -56,12 +56,21 @@ curl "http://localhost:8080/job-cover?depot=REG&at=2026-10-26T23:30:00Z&hours=24
       "K-22 is a pickup at Regina, has no other job during Tue Oct 27 07:55-09:25, and its tracker is reporting normally."
     ],
     "evidence": ["e33683614", "e78779377", "e97794714"]
-  }]
+  }],
+  "notices": [],
+  "summary": {"jobs_in_window": 168, "at_risk": 2, "swap": 2, "gap": 0}
 }
 ```
 
 Times in `reasons` and `manager_action` are in the depot's local time, because that is how the manager
-reads a schedule. Everything else is UTC. The response has the contract's fields and no others.
+reads a schedule. Everything else is UTC.
+
+Two fields go beyond the contract (the contract's own fields are untouched):
+
+- `notices` — things said **once** instead of once per job. A carrier outage appears here as a single
+  item listing the affected vehicles and jobs; so does a vehicle that is probably just in a dead zone.
+  Nothing listed under `notices` is moved.
+- `summary` — counts for the window.
 
 ## How it decides
 
@@ -101,9 +110,9 @@ unexplained or inside an outage is never offered as a replacement).
   have no camera. A job on a camera van is never moved to a van without one.
 - The contract also allows `keep`. This service never answers it: a job is either moved or reported as
   having no replacement.
-- Carrier outage: nothing is moved, and jobs on affected vehicles are not listed (the network is down, not
-  the vehicles). Vehicles on the affected carrier are not offered as replacements until it is back. The
-  one shared explanation is on each affected device's status.
+- Carrier outage: nothing is moved, and jobs on affected vehicles are not listed under `jobs` (the network
+  is down, not the vehicles). The outage is said once, in `notices`. Vehicles on the affected carrier are
+  not offered as replacements until it is back.
 
 **Messy data, on purpose** (`fleetsilence/store.py`):
 

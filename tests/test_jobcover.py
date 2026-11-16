@@ -1,4 +1,4 @@
-"""GET /job-cover: swaps, gaps, and moving nothing for a carrier outage."""
+"""GET /job-cover: swaps, gaps, and saying a carrier outage once."""
 import unittest
 
 from fleetsilence.server import BadRequest
@@ -24,7 +24,9 @@ class SwapTest(unittest.TestCase):
         app.ingest({"events": power_loss("T-21", AT)})
         body = cover(app, AT)
         self.assertEqual({k: body[k] for k in ("depot", "at", "hours")}, {"depot": "MSS", "at": iso(AT), "hours": 24})
-        self.assertEqual(set(body), {"depot", "at", "hours", "jobs"})                 # exactly the contract's shape
+        self.assertEqual(set(body), {"depot", "at", "hours", "jobs", "notices", "summary"})
+        self.assertEqual(body["summary"], {"jobs_in_window": 1, "at_risk": 1, "swap": 1, "gap": 0})
+        self.assertEqual(body["notices"], [])
         self.assertEqual(set(body["jobs"][0]), {"job_id", "asset_id", "problem", "decision", "swap_to",
                                                 "manager_action", "reasons", "evidence"})
         (job,) = body["jobs"]
@@ -164,10 +166,16 @@ class OutageTest(unittest.TestCase):
         app.ingest({"events": events})
         self.assertEqual(status(app, "T-1", AT)["likely_cause"], "coverage_gap")
 
-    def test_job_cover_moves_nothing_for_the_outage(self):
+    def test_job_cover_moves_nothing_and_says_it_once(self):
         body = cover(self.app, AT)
         affected = {f"V-{n}" for n in range(1, 7)}
         self.assertFalse([j for j in body["jobs"] if j["asset_id"] in affected])
+        outages = [n for n in body["notices"] if n["kind"] == "carrier_outage"]
+        self.assertEqual(len(outages), 1)
+        self.assertEqual((outages[0]["carrier"], outages[0]["devices_silent"]), ("Lakeline", 6))
+        self.assertEqual(set(outages[0]["asset_ids"]), affected)
+        self.assertTrue(outages[0]["reasons"] and outages[0]["evidence"])
+        self.assertEqual(body["summary"]["jobs_in_window"], 13)
         # ...and every affected device carries the same explanation.
         reasons = {status(self.app, f"T-{n}", AT)["reasons"][0].split(". ", 1)[1] for n in range(1, 7)}
         self.assertEqual(len(reasons), 1)
