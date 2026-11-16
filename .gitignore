@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# The take-home data pack is not ours to publish; point QF_DATA_DIR at your copy.
+/data-pack/
+/data/
+exam/results/
+.claude/
