@@ -54,7 +54,7 @@ def _newer(e, cur):
 
 class Summary:
     """What is known about one device from its first n events (in received order)."""
-    __slots__ = ("n", "last_contact", "last", "first", "live_since", "latest", "rare")
+    __slots__ = ("n", "last_contact", "last", "first", "first_position", "live_since", "latest", "rare")
     contact_break_s = 360      # set from settings by Store: a gap this long ends a run of live contact
     backfill_lateness_s = 120  # set from settings by Store: events this late are buffered, not live
 
@@ -63,6 +63,7 @@ class Summary:
         self.last_contact = None   # latest received time of anything the device itself sent
         self.last = None           # the device's own latest event, by device time
         self.first = None          # the device's own earliest event, by device time
+        self.first_position = None
         self.live_since = None     # start of the current unbroken run of on-time contact (received time)
         self.latest = {}           # key -> latest event of that kind, by device time
         self.rare = []             # all power, command, plan and storage-error events
@@ -85,6 +86,8 @@ class Summary:
             self.last = e
         if self.first is None or e.t < self.first.t:
             self.first = e
+        if e.type == "position" and (self.first_position is None or e.t < self.first_position.t):
+            self.first_position = e
         if e.type in MOTION_TYPES:
             if _newer(e, latest.get("motion")):
                 latest["motion"] = e

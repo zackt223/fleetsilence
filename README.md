@@ -89,8 +89,8 @@ unexplained or inside an outage is never offered as a replacement).
 | Tracker: ignition off, heartbeats on time | `quiet_expected` · `parked_normal` |
 | Tracker: power-disconnect alert, then low-voltage alert or 35 min without a restore | `needs_action` · `power_loss` |
 | Tracker: silent mid-drive, alone, under 100 min | `unknown` · `coverage_gap` (watched, not acted on) |
-| Tracker: silent mid-drive together with most others on the same carrier and depot | `needs_action` · `carrier_outage` |
-| Tracker: silent, and another unit now reports the same vehicle's VIN | `device_swapped` (the vehicle is still tracked) |
+| Tracker: silent together with most others on the same carrier and depot that were due to report | `needs_action` · `carrier_outage` |
+| Tracker: silent, and another unit now reports from the same vehicle | `device_swapped` (the vehicle is still tracked) |
 | Camera: last report `sleeping`, or the vehicle is parked | `quiet_expected` · `sleeping_by_design` |
 | Camera: `storage_error`, or silent while the vehicle drives | `needs_action` · `camera_fault` |
 | Any device: data plan paused or ended | `needs_action` · `plan_paused` |
@@ -186,10 +186,9 @@ that needs the network.
 
 ## Known limits
 
-- Carrier outages are detected from trackers that were driving (within 6 minutes). An outage that starts
-  when every vehicle is parked is not recognised: overdue trackers then show as `needs_action` · `unknown`.
-- A tracker swapped mid-shift is recognised once the new unit sends its first VIN-bearing message. In the
-  history that took 5 to 10 hours, and until then (after the first 100 minutes) the vehicle shows as untracked.
+- Carrier outages are detected from trackers: within 6 minutes when vehicles are on the road, but an
+  outage that starts when everything is parked is only noticed once heartbeats come due (up to 4.5 h).
+  Cameras and battery tags are attributed to an outage, but do not trigger one.
 - A job more than a few hours ahead is judged on the vehicle's state now. A power loss or paused plan is
   assumed to still be there when the job starts unless a restore arrives first.
 - Planned downtime is inferred (a seasonal group going quiet together); there is no explicit "in the

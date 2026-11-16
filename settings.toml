@@ -23,6 +23,11 @@ heartbeat_interval_min = 240     # GIVEN: "a heartbeat every 4 hours while it's 
 heartbeat_late_min = 270         # GIVEN: "late after 4 hours 30 minutes with nothing"
 coverage_gap_max_min = 100       # CALIBRATED: 221 dead-zone silences lasted 21-91 min; beyond 100 min it is not a coverage gap
 
+[swap]
+# A unit swapped mid-shift: the new tracker's first-ever position follows the old one's last.
+handover_window_min = 10         # CALIBRATED: in all 5 mid-drive swaps the new unit spoke exactly 2 min after the old one stopped
+handover_distance_km = 3         # CALIBRATED: the two positions were 0.01-0.55 km apart
+
 [power]
 confirm_after_min = 35           # CALIBRATED: all 10 harmless disconnects were restored within 18-32 min; all 15 real ones sent low-voltage within 14 min
 backup_window_min = 60           # CALIBRATED: the backup battery kept units talking 9-34 min; reports later than this mean power is back

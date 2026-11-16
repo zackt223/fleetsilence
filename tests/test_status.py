@@ -51,15 +51,15 @@ class TrackerTest(unittest.TestCase):
     def test_swapped_unit_is_recognised_by_the_vin_it_reports(self):
         app = make_app()
         events = drive("T-1", T0, T0 + HOUR, "V-1")                      # the recorded tracker stops at 09:00
-        events += drive("T-99", T0 + HOUR + 2 * MIN, T0 + 2 * HOUR)      # a spare takes over
-        events += park("T-99", T0 + 2 * HOUR, T0 + 12 * HOUR, "V-1")     # and reports V-1's VIN with its first heartbeat
+        events += drive("T-99", T0 + HOUR + 2 * MIN, T0 + 2 * HOUR)      # a spare starts from the same spot
+        events += park("T-99", T0 + 2 * HOUR, T0 + 12 * HOUR, "V-1")     # and later reports V-1's VIN
         app.ingest({"events": events})
-        at = T0 + 8 * HOUR
-        old = status(app, "T-1", at)
-        self.assertEqual((old["state"], old["likely_cause"]), ("needs_action", "device_swapped"))
-        new = status(app, "T-99", at)
-        self.assertEqual(new["asset_id"], "V-1")
-        self.assertEqual(new["state"], "quiet_expected")
+        for at in (T0 + 90 * MIN, T0 + 8 * HOUR):                        # before and after the VIN is known
+            old = status(app, "T-1", at)
+            self.assertEqual((old["state"], old["likely_cause"]), ("needs_action", "device_swapped"), at)
+            new = status(app, "T-99", at)
+            self.assertEqual(new["asset_id"], "V-1")
+            self.assertIn(new["state"], ("reporting", "quiet_expected"))
 
     def test_spare_that_never_reported_is_unknown(self):
         app = make_app()
