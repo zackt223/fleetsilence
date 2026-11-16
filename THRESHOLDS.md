@@ -46,7 +46,10 @@ reporting while Lakeline was down in Mississauga.
 | `camera.quiet_min` | 12 | Calibrated | A recording camera reports every 5.0 min (1st percentile 4.4). Twelve minutes is two missed in a row. |
 | `camera.wake_grace_min` | 10 | Calibrated | After a sleep, cameras report "booting" a median 5 s after ignition on (2,723 wake-ups). |
 | `camera.reboot_settle_min` | 15 | Calibrated | When a remote reboot worked, "booting" followed the command within a minute (median 40 s). A reboot older than 15 min with no recovery has failed. |
-| `jobcover.camera_keep_min_lead_h` | 3 | Calibrated | 40 camera-fault cases: 28 cleared by the first remote reboot, typically within the hour; the other 12 failed two reboots and needed a technician. So a fresh fault on a job 3 h or more away is kept (reboot first); once a reboot has failed, or the job is sooner, it is swapped. |
+
+Also measured, and not turned into a rule: of 40 camera-fault cases, 28 were cleared by the first remote
+reboot and 12 needed a technician after two failed reboots. The service swaps every job on a van with a
+faulted camera regardless.
 
 ## Battery trackers (A-series and BX-series)
 

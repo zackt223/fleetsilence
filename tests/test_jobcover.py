@@ -105,24 +105,27 @@ class VideoTest(unittest.TestCase):
         job = next(j for j in cover(app, AT)["jobs"] if j["job_id"] == "J-1")
         self.assertEqual((job["problem"], job["decision"], job["swap_to"]), ("no_video", "gap", None))
 
-    def test_untrackable_camera_van_falls_back_to_a_tracked_camera_less_van(self):
+    def test_untrackable_camera_van_is_a_gap_when_only_camera_less_vans_are_free(self):
         app = make_app(jobs=self.busy_camera_vans("V-1"))
         healthy_fleet(app, AT, skip={"T-1"})
         app.ingest({"events": power_loss("T-1", AT)})
         job = next(j for j in cover(app, AT)["jobs"] if j["job_id"] == "J-1")
-        self.assertEqual((job["problem"], job["decision"]), ("no_location", "swap"))
-        self.assertIn(job["swap_to"], {"V-5", "V-6", "V-11", "V-12"})
-        self.assertIn("not recorded", job["manager_action"])
+        self.assertEqual((job["problem"], job["decision"], job["swap_to"]), ("no_location", "gap", None))
+        self.assertIn("without a camera", " ".join(job["reasons"]))
 
-    def test_fresh_fault_on_a_job_hours_away_is_kept_until_a_reboot_has_failed(self):
+    def test_camera_fault_is_swapped_however_far_ahead_the_job_is(self):
         app = make_app(jobs=[("J-1", "V-1", AT + 6 * HOUR, AT + 7 * HOUR)])
         healthy_fleet(app, AT, skip={"C-1"})
         self.camera_fault(app)
         (job,) = cover(app, AT)["jobs"]
-        self.assertEqual((job["problem"], job["decision"], job["swap_to"]), ("no_video", "keep", None))
-        self.camera_fault(app, reboot=True)           # a reboot an hour ago did not bring it back
-        (job,) = cover(app, AT)["jobs"]
-        self.assertEqual(job["decision"], "swap")
+        self.assertEqual((job["problem"], job["decision"]), ("no_video", "swap"))
+
+    def test_the_service_never_answers_keep(self):
+        app = make_app(jobs=[(f"J-{n}", f"V-{n}", AT + n * HOUR, AT + (n + 1) * HOUR) for n in range(1, 13)])
+        healthy_fleet(app, AT, skip={"C-1", "T-5"})
+        self.camera_fault(app)
+        app.ingest({"events": power_loss("T-5", AT)})
+        self.assertEqual({j["decision"] for j in cover(app, AT)["jobs"]}, {"swap"})
 
     def test_sleeping_camera_and_camera_less_van_are_not_flagged(self):
         app = make_app(jobs=[("J-1", "V-1", *JOB), ("J-2", "V-5", *JOB)])

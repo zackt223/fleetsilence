@@ -34,7 +34,7 @@ On Windows the same command is `py -3.12 -m fleetsilence`.
 | `GET /health` | `{"status": "ok"}` |
 | `POST /ingest` | Takes `{"events": [...]}`; returns `{"accepted": n}`. Events may arrive late, more than once, or out of order. |
 | `GET /devices/{serial}/status?at=` | Is the device reporting, quiet as expected, in need of action, or unknown; the most likely cause; the reasons; the event IDs behind the answer. |
-| `GET /job-cover?depot=&at=&hours=` | Jobs starting in the window whose vehicle can't be tracked or recorded, each with a swap, a keep, or a gap and the reason. |
+| `GET /job-cover?depot=&at=&hours=` | Jobs starting in the window whose vehicle can't be tracked or recorded, each with a swap to another vehicle, or a gap and the reason there is none. |
 
 Shapes and allowed values follow the take-home's `docs/CONTRACT.md` exactly. Bad or missing parameters
 return `400`, an unknown serial `404`.
@@ -97,11 +97,10 @@ unexplained or inside an outage is never offered as a replacement).
 - `swap`: to a vehicle of the same type and depot, with no other job at any point in the slot, that is
   itself tracked and (for a camera van) recorded. One replacement is never given overlapping jobs, and all
   the jobs of one troubled vehicle go to the same replacement where possible, so the crew changes vehicle once.
-- A van that can't be tracked falls back to a camera-less van if no camera van is free (tracked but not
-  recorded beats blind). A recording-only problem never does: that swap would fix nothing.
-- `keep`: only for a camera fault that has not yet failed a remote reboot, on a job at least 3 h away.
-  28 of 40 such faults in the case history were cleared by the first reboot.
-- `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or camera-less.
+- `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or
+  have no camera. A job on a camera van is never moved to a van without one.
+- The contract also allows `keep`. This service never answers it: a job is either moved or reported as
+  having no replacement.
 - Carrier outage: nothing is moved, and jobs on affected vehicles are not listed (the network is down, not
   the vehicles). Vehicles on the affected carrier are not offered as replacements until it is back. The
   one shared explanation is on each affected device's status.
@@ -138,7 +137,7 @@ python3 -m unittest discover -s tests -t .
 - `test_ingest.py` — duplicates (same id and new id), the same batch twice, shuffled batches, late
   bursts, wrong clocks, malformed events.
 - `test_status.py` — each cause in the table above, and that only events received by `at` count.
-- `test_jobcover.py` — swap, gap (busy / unhealthy), keep, no double-booking, mass-silence grouping, and
+- `test_jobcover.py` — swap, gap (busy / unhealthy / no camera), no double-booking, mass-silence grouping, and
   that nothing is moved for an outage.
 - `test_http.py` — starts the real service with the start command and calls every endpoint over HTTP.
 - `test_practice_replay.py` — streams the take-home's full telemetry through the service and runs its
@@ -161,7 +160,7 @@ fleetsilence/
   server.py     HTTP routes, parameter checks
   store.py      ingest: de-duplication, device time vs arrival time
   status.py     what a device's silence means; carrier-outage detection
-  jobcover.py   at-risk jobs: swap, keep or gap
+  jobcover.py   at-risk jobs: swap or gap
   bx.py         BX-series decoder
   refdata.py    reference CSVs
   timeutil.py   timestamps and depot-local time (no tz database needed)

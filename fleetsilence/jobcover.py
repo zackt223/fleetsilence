@@ -7,6 +7,7 @@ or say plainly that none can and why.
 Rules built in here:
 * Missing a real problem is worse than a false alarm, so a confirmed fault is
   flagged for every job in the window, however far ahead.
+* A job is either moved (`swap`) or reported as having no replacement (`gap`).
 * A wrong swap costs the crew time, so a swap is only offered to a vehicle of
   the same type and depot that is free for the job's whole slot and is itself
   visibly healthy - anything silent, unexplained or inside a carrier outage is
@@ -103,41 +104,24 @@ class JobCover:
             item = {"job_id": job.job_id, "asset_id": job.asset_id, "problem": problem, "decision": None,
                     "swap_to": None, "manager_action": "", "reasons": reasons, "evidence": evidence}
 
-            lead_h = (job.start - at) / 3600
-            v = h.video_issue
-            if (problem == "no_video" and v.cause == "camera_fault" and not v.detail.get("failed_reboots")
-                    and lead_h >= cfg["camera_keep_min_lead_h"]):
-                fixed, total = self.ref.reboot_stats.get("", (0, 0))
-                history = f" ({fixed} of {total} camera faults in the case history were cleared that way)" if total else ""
-                item["decision"] = "keep"
+            target, why_not = self._replacement(snap, job, asset, h, memo, assigned, moved_to.get(job.asset_id))
+            if target:
+                assigned[target].append((job.start, job.end))
+                moved_to[job.asset_id] = target
+                t = self.ref.assets[target]
+                item["decision"], item["swap_to"] = "swap", target
+                cam = " with a working camera" if snap.asset_cameras(target) else ""
                 item["reasons"].append(
-                    f"The job is {lead_h:.0f} h away and a remote reboot usually clears this fault within the hour{history},"
-                    " so the van stays on the job for now. If the reboot fails this turns into a swap.")
-                item["manager_action"] = (
-                    f"Keep {job.asset_id} on {job.job_id} ({slot}). Ask support to reboot camera {v.serial} now and"
-                    " check again before the shift; do not send it out if the camera is still down.")
+                    f"{target} is a {t.get('type')} at {snap.depot_name(depot)}{cam}, has no other job during {slot},"
+                    " and its tracker is reporting normally.")
+                item["manager_action"] = f"Move {job.job_id} ({slot}, {job.job_type}) from {job.asset_id} to {target}."
             else:
-                target, why_not = self._replacement(snap, job, asset, h, memo, assigned, moved_to.get(job.asset_id))
-                if target:
-                    assigned[target].append((job.start, job.end))
-                    moved_to[job.asset_id] = target
-                    t = self.ref.assets[target]
-                    item["decision"], item["swap_to"] = "swap", target
-                    cam = " with a working camera" if snap.asset_cameras(target) else ""
-                    item["reasons"].append(
-                        f"{target} is a {t.get('type')} at {snap.depot_name(depot)}{cam}, has no other job during {slot},"
-                        " and its tracker is reporting normally.")
-                    item["manager_action"] = f"Move {job.job_id} ({slot}, {job.job_type}) from {job.asset_id} to {target}."
-                    if why_not:      # second-best: tracked, but not recorded
-                        item["reasons"].append(why_not)
-                        item["manager_action"] += " It will be tracked but not recorded: no van with a working camera is free."
-                else:
-                    item["decision"] = "gap"
-                    item["reasons"].append(why_not)
-                    blind = {"no_location": "untracked", "no_video": "unrecorded", "both": "untracked and unrecorded"}[problem]
-                    item["manager_action"] = (
-                        f"No replacement for {job.job_id} ({slot}). Reschedule it, or get {job.asset_id} fixed before then;"
-                        f" otherwise it goes out {blind}.")
+                item["decision"] = "gap"
+                item["reasons"].append(why_not)
+                blind = {"no_location": "untracked", "no_video": "unrecorded", "both": "untracked and unrecorded"}[problem]
+                item["manager_action"] = (
+                    f"No replacement for {job.job_id} ({slot}). Reschedule it, or get {job.asset_id} fixed before then;"
+                    f" otherwise it goes out {blind}.")
             items.append(item)
 
         return {"depot": depot, "at": iso(at), "hours": hours, "jobs": items}
@@ -147,7 +131,7 @@ class JobCover:
         cfg = self.cfg.jobcover
         need_camera = cfg["require_working_camera_for_camera_vans"] and bool(h.cameras)
         tally = defaultdict(int)
-        best = fallback = None
+        best = None
         for aid, row in self.ref.assets.items():
             if aid == job.asset_id or row.get("type") != asset.get("type") or row.get("depot") != asset.get("depot"):
                 continue
@@ -168,8 +152,6 @@ class JobCover:
                     day + len(assigned[aid]), aid)
             if need_camera and not c.cameras:
                 tally["no camera"] += 1
-                if fallback is None or rank < fallback[0]:
-                    fallback = (rank, aid)
                 continue
             if best is None or rank < best[0]:
                 best = (rank, aid)
@@ -190,10 +172,7 @@ class JobCover:
             parts.append(n("no camera", "is free but has", "are free but have") + " no camera")
         detail = "; ".join(parts) if parts else "there are none"
         others = f"{tally['same type']} other {kind}{'' if tally['same type'] == 1 else 's'}"
-        if fallback and h.location_issue:
-            # The vehicle can't be tracked at all. A tracked van without a camera beats sending the job out blind.
-            return fallback[1], (f"No {kind} with a working camera is free (of the {others}, {detail}),"
-                                 f" so the job moves to a camera-less {kind}: tracked, but not recorded.")
-        tail = " A camera-less van would not fix a recording problem, so none is offered." if fallback else ""
+        tail = (" A van without a camera can't record the job, so it is not offered as a replacement."
+                if tally["no camera"] else "")
         return None, (f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
                       f" {detail}.{tail}")

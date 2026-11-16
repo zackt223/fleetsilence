@@ -55,9 +55,6 @@ cluster_window_min = 30
 lookback_h = 24
 
 [jobcover]
-# keep (rather than swap) a job whose only problem is a fresh camera fault that a
-# remote reboot is likely to clear before the job starts.
-camera_keep_min_lead_h = 3       # CALIBRATED: 28 of 40 camera faults were cleared by the first remote reboot, about 1 h after the error
 require_working_camera_for_camera_vans = true
 prefer_same_use = true
 
