@@ -56,6 +56,9 @@ lookback_h = 24
 
 [jobcover]
 require_working_camera_for_camera_vans = true
+# If a camera van can't be TRACKED and no camera van is free, move the job to a van without a camera
+# (tracked but not recorded) rather than leave a gap. Never used for a recording-only problem.
+camera_less_fallback_when_untracked = true
 prefer_same_use = true
 
 [depots.MSS]

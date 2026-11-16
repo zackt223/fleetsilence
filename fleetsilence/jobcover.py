@@ -116,6 +116,9 @@ class JobCover:
                     f"{target} is a {t.get('type')} at {snap.depot_name(depot)}{cam}, has no other job during {slot},"
                     " and its tracker is reporting normally.")
                 item["manager_action"] = f"Move {job.job_id} ({slot}, {job.job_type}) from {job.asset_id} to {target}."
+                if why_not:      # second-best: tracked, but not recorded
+                    item["reasons"].append(why_not)
+                    item["manager_action"] += " It will be tracked but not recorded: no van with a working camera is free."
             else:
                 item["decision"] = "gap"
                 item["reasons"].append(why_not)
@@ -138,7 +141,7 @@ class JobCover:
         cfg = self.cfg.jobcover
         need_camera = cfg["require_working_camera_for_camera_vans"] and bool(h.cameras)
         tally = defaultdict(int)
-        best = None
+        best = fallback = None
         for aid, row in self.ref.assets.items():
             if aid == job.asset_id or row.get("type") != asset.get("type") or row.get("depot") != asset.get("depot"):
                 continue
@@ -159,6 +162,8 @@ class JobCover:
                     day + len(assigned[aid]), aid)
             if need_camera and not c.cameras:
                 tally["no camera"] += 1
+                if fallback is None or rank < fallback[0]:
+                    fallback = (rank, aid)
                 continue
             if best is None or rank < best[0]:
                 best = (rank, aid)
@@ -179,7 +184,11 @@ class JobCover:
             parts.append(n("no camera", "is free but has", "are free but have") + " no camera")
         detail = "; ".join(parts) if parts else "there are none"
         others = f"{tally['same type']} other {kind}{'' if tally['same type'] == 1 else 's'}"
-        tail = (" A van without a camera can't record the job, so it is not offered as a replacement."
+        if fallback and h.location_issue and cfg["camera_less_fallback_when_untracked"]:
+            # The vehicle can't be tracked at all. A tracked van without a camera beats sending the job out blind.
+            return fallback[1], (f"No {kind} with a working camera is free (of the {others}, {detail}),"
+                                 f" so the job moves to a {kind} without a camera: tracked, but not recorded.")
+        tail = (" A van without a camera would not fix a recording problem, so none is offered."
                 if tally["no camera"] else "")
         return None, (f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
                       f" {detail}.{tail}")

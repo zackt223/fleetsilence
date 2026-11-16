@@ -106,8 +106,11 @@ unexplained or inside an outage is never offered as a replacement).
 - `swap`: to a vehicle of the same type and depot, with no other job at any point in the slot, that is
   itself tracked and (for a camera van) recorded. One replacement is never given overlapping jobs, and all
   the jobs of one troubled vehicle go to the same replacement where possible, so the crew changes vehicle once.
+- A camera van moves to another van with a working camera. If none is free and the problem is tracking,
+  it falls back to a van without a camera (tracked but not recorded beats blind) and says so. A
+  recording-only problem never falls back: that swap would fix nothing.
 - `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or
-  have no camera. A job on a camera van is never moved to a van without one.
+  have no camera.
 - The contract also allows `keep`. This service never answers it: a job is either moved or reported as
   having no replacement.
 - Carrier outage: nothing is moved, and jobs on affected vehicles are not listed under `jobs` (the network
