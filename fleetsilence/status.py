@@ -405,8 +405,12 @@ class Snapshot:
             elif mo == "parked":
                 m = s.latest.get("ignition_off")
                 since = f" since {self.when(depot, m.t)}" if m else ""
-                a.set(QUIET, "parked_normal", 0.9,
-                      f"The vehicle is parked with the ignition off{since}; heartbeats are on time. {heard}.")
+                if self.cfg.status["parked_state"] == REPORTING:
+                    a.set(REPORTING, "none", 0.9,
+                          f"The vehicle is parked with the ignition off{since}; heartbeats are on time. {heard}.")
+                else:
+                    a.set(QUIET, "parked_normal", 0.9,
+                          f"The vehicle is parked with the ignition off{since}; heartbeats are on time. {heard}.")
                 a.evidence = self.ids(last, m)
             else:
                 a.set(REPORTING, "none", 0.6, f"{heard}.")
@@ -448,7 +452,8 @@ class Snapshot:
 
         if mo == "driving":
             if gap <= cfg["coverage_gap_max_min"] * 60:
-                a.set(UNKNOWN, "coverage_gap", 0.6,
+                state = QUIET if self.cfg.status["coverage_gap_state"] == QUIET else UNKNOWN
+                a.set(state, "coverage_gap", 0.6,
                       f"{heard} while driving, {duration(gap)} ago, with no power alert and no wider outage.",
                       "Most likely a dead zone: in the history these lasted up to an hour and a half and the buffered"
                       f" positions arrived afterwards. It becomes a fault after {cfg['coverage_gap_max_min']} min.")

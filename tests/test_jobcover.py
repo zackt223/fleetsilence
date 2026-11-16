@@ -78,6 +78,17 @@ class SwapTest(unittest.TestCase):
         self.assertEqual(cover(app, AT, depot="REG")["jobs"], [])
 
 
+class DeadZoneTest(unittest.TestCase):
+    def test_a_vehicle_in_a_dead_zone_is_never_the_replacement_whatever_its_status_is_called(self):
+        for word in ("unknown", "quiet_expected"):
+            app = make_app(jobs=[("J-1", "K-1", *JOB)])
+            app.cfg["status"] = dict(app.cfg["status"], coverage_gap_state=word)
+            healthy_fleet(app, AT, skip={"T-21", "T-22"})
+            app.ingest({"events": power_loss("T-21", AT) + drive("T-22", AT - HOUR, AT - 30 * MIN, "K-2")})
+            (job,) = cover(app, AT)["jobs"]
+            self.assertEqual((job["decision"], job["swap_to"]), ("gap", None), word)
+
+
 class VideoTest(unittest.TestCase):
     def camera_fault(self, app, reboot=False):
         events = [ev("C-1", "camera_status", AT - 3 * HOUR, {"status": "recording"}),

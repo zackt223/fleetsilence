@@ -61,6 +61,16 @@ class TrackerTest(unittest.TestCase):
             self.assertEqual(new["asset_id"], "V-1")
             self.assertIn(new["state"], ("reporting", "quiet_expected"))
 
+    def test_the_two_open_verdicts_are_settings(self):
+        app = make_app()
+        app.ingest({"events": drive("T-1", T0, T0 + HOUR, "V-1") + park("T-1", T0 + HOUR, T0 + 6 * HOUR, "V-1")
+                    + drive("T-2", T0, T0 + 20 * MIN, "V-2")})
+        self.assertEqual(verdict(app, "T-1", T0 + 3 * HOUR), ("quiet_expected", "parked_normal"))
+        self.assertEqual(verdict(app, "T-2", T0 + HOUR), ("unknown", "coverage_gap"))
+        app.cfg["status"] = {"parked_state": "reporting", "coverage_gap_state": "quiet_expected"}
+        self.assertEqual(verdict(app, "T-1", T0 + 3 * HOUR), ("reporting", "none"))
+        self.assertEqual(verdict(app, "T-2", T0 + HOUR), ("quiet_expected", "coverage_gap"))
+
     def test_spare_that_never_reported_is_unknown(self):
         app = make_app()
         s = status(app, "T-99", T0)

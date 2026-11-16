@@ -23,6 +23,15 @@ is strong, because a wrong swap wastes a crew's time and erodes trust in the nex
 | `power.backup_window_min` | 60 | Calibrated | After a real disconnect the unit kept talking for 9–34 min on its backup battery. A unit still reporting an hour later has power again even if the restore message was lost (seen once). |
 | `swap.handover_window_min` / `handover_distance_km` | 10 / 3 | Calibrated | 7 unit swaps. In all 5 done mid-shift, the new unit's first position came exactly 2 min after the old unit's last, 0.01–0.55 km away. Its first VIN-bearing message only came 5–10 h later, and without this rule the van looks untracked for that long. |
 
+## Two status verdicts the references leave open
+
+| Setting | Value | Why this value |
+|---|---|---|
+| `status.parked_state` | `quiet_expected` | The contract defines `quiet_expected` as "quiet and that's normal" and lists `parked_normal` as a cause, which can only be reported with a non-`reporting` state. All 26 `parked_normal` support cases were closed "heartbeats on time; vehicle parked", no fault found. |
+| `status.coverage_gap_state` | `unknown` | All 14 `coverage_gap` cases resolved by themselves, but while the silence is in progress it looks exactly like the first 100 minutes of a fault. The contract's `unknown` is "not enough evidence yet". The practice exam accepts `unknown` as the cautious answer for the other self-resolving cause it tests (carrier outage). |
+
+Whatever word is chosen, a vehicle in a dead zone is not offered as a replacement and its own jobs are not moved.
+
 ## Carrier outages
 
 | Setting | Value | Source | Evidence |

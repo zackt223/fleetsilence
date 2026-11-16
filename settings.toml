@@ -17,6 +17,15 @@ clock_future_tolerance_s = 600   # CALIBRATED: no event in the history is ahead 
 max_trusted_lateness_h = 24      # CALIBRATED: the latest buffered event arrived 90 min late; 24 h leaves room for a day-long outage
 backfill_lateness_s = 120        # CALIBRATED: 90 % of events arrive within 5 s and 98.8 % within 2 min; the rest came from a device's buffer
 
+[status]
+# Two verdicts the brief and the practice exam leave open. Each is one word to change.
+# A parked tracker whose heartbeats are on time: "quiet_expected" (cause parked_normal) or "reporting" (cause none).
+# All 26 parked_normal support cases were closed "no fault found, heartbeats on time; vehicle parked".
+parked_state = "quiet_expected"
+# One vehicle silent mid-drive, inside the coverage-gap limit: "unknown" or "quiet_expected" (cause coverage_gap either way).
+# All 14 coverage_gap cases resolved by themselves, but while it is happening a dead zone can't be told from a fault.
+coverage_gap_state = "unknown"
+
 [tracker]
 drive_quiet_min = 6              # CALIBRATED: positions come every 2.0 min (99.99th pct 2.05); 6 min = three missed in a row
 heartbeat_interval_min = 240     # GIVEN: "a heartbeat every 4 hours while it's off"

@@ -99,6 +99,10 @@ unexplained or inside an outage is never offered as a replacement).
 | Battery tag: stopped the same day as the rest of its seasonal group | `quiet_expected` · `planned_downtime` |
 | Anything silent past its limit with no explanation | `needs_action` · `unknown` |
 
+Two of these verdicts are judgment calls that neither the brief nor the practice exam settles, so each is
+a one-word setting in `settings.toml` under `[status]`: whether a parked tracker with on-time heartbeats is
+`quiet_expected` or `reporting`, and whether a lone dead-zone silence is `unknown` or `quiet_expected`.
+
 **Job cover** (`fleetsilence/jobcover.py`):
 
 - A job is listed when its vehicle's tracker (`no_location`), camera (`no_video`) or both have a confirmed
@@ -143,7 +147,7 @@ brief) or CALIBRATED (measured on the history). [THRESHOLDS.md](THRESHOLDS.md) g
 python3 -m unittest discover -s tests -t .
 ```
 
-58 tests, standard library only:
+62 tests, standard library only:
 
 - `test_bx.py` — the decoder against the vendor portal's three readouts; garbled messages.
 - `test_ingest.py` — duplicates (same id and new id), the same batch twice, shuffled batches, late

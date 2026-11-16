@@ -48,7 +48,7 @@ class JobCover:
         h.location_issue = h.video_issue = h.outage = None
         h.soft = []
 
-        seen = any(t.ok for t in h.trackers)
+        seen = any(t.ok and t.cause != "coverage_gap" for t in h.trackers)
         if not seen:
             hard = [t for t in h.trackers if t.state == ACTION and t.cause not in NOT_THE_VEHICLE]
             if hard:
@@ -56,7 +56,7 @@ class JobCover:
             else:
                 h.soft += h.trackers
         for c in h.cameras:
-            if c.ok:
+            if c.ok and c.cause != "coverage_gap":
                 continue
             if c.state == ACTION and c.cause not in NOT_THE_VEHICLE:
                 h.video_issue = h.video_issue or c
