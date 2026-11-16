@@ -5,6 +5,7 @@ normal, or because something is wrong - and what is the most likely reason?
 The trade-off for the fleet manager is that a missed real problem is worse
 than a false alarm, so unexplained silence is never called "expected".
 """
+import math
 from collections import defaultdict
 from statistics import median
 
@@ -58,10 +59,11 @@ class Outage:
 
 class Vehicle:
     """What the asset's tracker says the vehicle is doing."""
-    __slots__ = ("motion", "in_contact", "since", "tracker", "event")
+    __slots__ = ("motion", "in_contact", "since", "tracker", "event", "live_since")
 
-    def __init__(self, motion=None, in_contact=False, since=None, tracker=None, event=None):
+    def __init__(self, motion=None, in_contact=False, since=None, tracker=None, event=None, live_since=None):
         self.motion, self.in_contact, self.since, self.tracker, self.event = motion, in_contact, since, tracker, event
+        self.live_since = live_since   # since when the tracker has been in unbroken, on-time contact
 
 
 class Engine:
@@ -93,6 +95,8 @@ class Snapshot:
         self.cfg, self.ref, self.store, self.clock = engine.cfg, engine.ref, engine.store, engine.clock
         self._summ, self._assess, self._vehicle = {}, {}, {}
         self._outages = self._vin_map = self._trackers = None
+        self._claimed = {}
+        self._earlier = None
 
     # ------------------------------------------------------------ basics
     def summ(self, serial):
@@ -122,27 +126,47 @@ class Snapshot:
         return self._trackers
 
     def vin_map(self):
-        """asset_id -> trackers whose own messages carry that asset's VIN.
-        The records are not always what is on the vehicle; the VIN is."""
+        """asset_id -> trackers that are demonstrably on that asset, whatever the records say.
+
+        The records are not always what is on the vehicle. Proof, strongest first:
+        1. the tracker's own messages carry the asset's VIN;
+        2. an unassigned tracker whose first-ever position follows, within minutes and a
+           short distance, the last position of that asset's recorded tracker: a unit
+           swapped mid-shift, before its first VIN-bearing message has arrived."""
         if self._vin_map is None:
-            m = defaultdict(list)
+            m, rev = defaultdict(list), {}
+            orphans = []
             for serial in self.trackers():
                 s = self.summ(serial)
                 v = s.latest.get("vin") if s else None
                 asset = self.ref.vin_asset.get(v.payload.get("vin")) if v else None
                 if asset:
                     m[asset].append(serial)
-            self._vin_map = m
+                    rev[serial] = asset
+                elif s and s.first_position and not (self.ref.devices.get(serial) or {}).get("asset_id"):
+                    orphans.append((serial, s))
+            cfg = self.cfg.swap
+            for serial, s in orphans:
+                for old in self.trackers():
+                    rec = self.ref.devices.get(old) or {}
+                    o = self.summ(old)
+                    p = o.latest.get("position") if o else None
+                    if (not rec.get("asset_id") or rev.get(old, rec["asset_id"]) != rec["asset_id"] or p is None
+                            or not 0 <= s.first.t - o.last.t <= cfg["handover_window_min"] * 60):
+                        continue
+                    if _km(p.payload, s.first_position.payload) <= cfg["handover_distance_km"]:
+                        m[rec["asset_id"]].append(serial)
+                        rev[serial] = rec["asset_id"]
+                        break
+            self._vin_map, self._claimed = m, rev
         return self._vin_map
 
     def asset_of(self, serial):
-        """The asset the device is really on: by reported VIN if it sends one, else by the records."""
+        """The asset the device is really on: by its own evidence if there is any, else by the records."""
         if self.e.family(serial) == "T":
-            s = self.summ(serial)
-            v = s.latest.get("vin") if s else None
-            asset = self.ref.vin_asset.get(v.payload.get("vin")) if v else None
-            if asset:
-                return asset
+            self.vin_map()
+            if serial in self._claimed:
+                return self._claimed[serial]
         return (self.ref.devices.get(serial) or {}).get("asset_id", "")
 
     def group(self, serial):
@@ -247,6 +271,13 @@ class Snapshot:
             return o
         return None
 
+    def outage_just_ended(self, serial, expected_by):
+        """An outage on this device's carrier that was still running one camera report cycle ago.
+        Trackers flush their buffers the moment service returns; cameras need a cycle to catch up."""
+        if self._earlier is None:
+            self._earlier = Snapshot(self.e, self.at - self.cfg.camera["quiet_min"] * 60)
+        return self._earlier.outage_for(serial, expected_by)
+
     def outage_reason(self, o):
         return (f"{len(o.serials)} of {o.driving} {o.carrier} trackers that were driving out of "
                 f"{self.depot_name(o.depot)} went silent together around {self.when(o.depot, o.start)}; "
@@ -275,7 +306,7 @@ class Snapshot:
             since, ev = None, s.latest["motion"]
             if k and (o is None or k.t >= o.t):
                 since, ev = k.t, k
-            v = Vehicle(mo, not silent and not self.power(s), since, serial, ev)
+            v = Vehicle(mo, not silent and not self.power(s), since, serial, ev, s.live_since)
         self._vehicle[asset_id] = v
         return v
 
@@ -379,6 +410,8 @@ class Snapshot:
             fixed = (self.ref.devices.get(other) or {}).get("asset_id") == a.asset_id and \
                 (self.ref.devices.get(other) or {}).get("status") == "active"
             a.evidence = self.ids(last, o.latest.get("vin"), o.first)
+            proof = (f"has been reporting {a.asset_id}'s VIN" if o.latest.get("vin") else
+                     f"picked up from the same spot {duration(max(0, o.first.t - last.t))} after this one stopped and has been reporting")
             a.detail["replaced_by"] = other
             if fixed:
                 a.set(QUIET, "device_swapped", 0.8,
@@ -386,7 +419,7 @@ class Snapshot:
                       " and the records already list it; this unit was replaced.")
             else:
                 a.set(ACTION, "device_swapped", 0.85,
-                      f"{heard}. A different tracker, {other}, has been reporting {a.asset_id}'s VIN since"
+                      f"{heard}. A different tracker, {other}, {proof} since"
                       f" {self.when(depot, o.first.t)}: the unit was swapped but the records still point here.",
                       f"The vehicle itself is visible through {other}; support should correct the device record.")
             return
@@ -430,6 +463,10 @@ class Snapshot:
         veh = self.vehicle(a.asset_id)
         gap = at - s.last_contact
         quiet = cfg["quiet_min"] * 60
+        # Only trust "the vehicle is driving" as a reason to expect the camera once the tracker has been
+        # live for a while: right after an outage or dead zone the camera needs a report cycle to catch up.
+        driving_live = (veh.motion == "driving" and veh.in_contact and veh.live_since is not None
+                        and at - veh.live_since >= quiet)
 
         if status == "storage_error":
             reboots = sorted((x for x in s.rare if x.type == "command" and x.payload.get("command") == "reboot" and x.t >= cs.t),
@@ -456,11 +493,18 @@ class Snapshot:
                 a.detail["outage"] = o
                 a.evidence = self.ids(cs, limit=2) + o.evidence[:8]
                 a.set(ACTION, "carrier_outage", 0.8, f"{heard}. " + self.outage_reason(o))
-            else:
-                fallback()
+                return
+            o = self.outage_just_ended(a.serial, expected_by)
+            if o:
+                a.evidence = self.ids(cs, limit=2) + self.ids(*[self.summ(sn).last for sn in o.serials[:4]])
+                a.set(UNKNOWN, "carrier_outage", 0.5,
+                      f"{heard}. {o.carrier} service at {self.depot_name(o.depot)} has only just come back after an outage"
+                      f" that began around {self.when(o.depot, o.start)}; the camera should report again within a few minutes.")
+                return
+            fallback()
 
         if status == "sleeping":
-            woke_late = (veh.motion == "driving" and veh.in_contact and veh.since and veh.since > cs.t
+            woke_late = (driving_live and veh.since and veh.since > cs.t
                          and at - veh.since > cfg["wake_grace_min"] * 60)
             if woke_late:
                 def fault():
@@ -484,22 +528,23 @@ class Snapshot:
             return
 
         # Was recording, now silent.
-        if veh.motion == "parked" and (veh.since is None or veh.since - cs.t <= quiet):
-            # Its last report was at (or after) ignition off: it went to sleep, even if the "sleeping" message was lost.
+        if veh.motion == "parked":
+            # A parked vehicle's camera is asleep whether or not its "sleeping" message got through.
             a.evidence = self.ids(cs, veh.event)
             off = f"the ignition went off at {self.when(depot, veh.since)}" if veh.since else "the vehicle is parked"
-            a.set(QUIET, "sleeping_by_design", 0.8 if veh.since else 0.6,
+            clean = veh.since is not None and veh.since - cs.t <= quiet
+            note = "" if clean else (" Its reports stopped before the ignition went off (a paused plan or a network gap"
+                                     " would do that), so this is confirmed only when it wakes with the next ignition.")
+            a.set(QUIET, "sleeping_by_design", 0.8 if clean else 0.55,
                   f"{heard}; {off} and the camera sleeps"
-                  f" {cfg['sleep_after_ignition_off_min']} min after ignition off, by design.")
-        elif (veh.motion == "driving" and veh.in_contact) or veh.motion == "parked":
+                  f" {cfg['sleep_after_ignition_off_min']} min after ignition off, by design.{note}")
+        elif driving_live:
             def fault():
                 a.evidence = self.ids(cs, veh.event)
                 a.detail["since"] = cs.t
-                tail = ("while the tracker shows the vehicle still driving" if veh.motion == "driving"
-                        else f"well before the ignition went off at {self.when(depot, veh.since)}")
                 a.set(ACTION, "camera_fault", 0.6,
-                      f"{heard}, then nothing for {duration(gap)} {tail}. A recording camera reports every 5 min;"
-                      " it has stopped without an error message.")
+                      f"{heard}, then nothing for {duration(gap)} while the tracker shows the vehicle still driving."
+                      " A recording camera reports every 5 min; it has stopped without an error message.")
             outage_or(s.last_contact, fault)
         else:
             def unknown():
@@ -547,7 +592,8 @@ class Snapshot:
 
         missed = []
         k = 1
-        while tg.t + k * 86400 + cfg["checkin_grace_h"] * 3600 <= at:
+        slack = cfg["late_after_h"] * 3600 - 86400     # the same slack that made it "late" in the first place
+        while tg.t + k * 86400 + slack <= at:
             missed.append(tg.t + k * 86400)
             k += 1
         lows = [self.ref.weather.get((depot, self.clock.local_date(depot, t))) for t in missed]
@@ -602,3 +648,13 @@ class Snapshot:
             a.set(UNKNOWN, "unknown", 0.3,
                   f"Last heard {self.when(a.depot, s.last.t)}, {duration(gap)} ago; not enough is known about this"
                   " kind of device to say whether that is normal.")
+
+
+def _km(a, b):
+    """Rough distance in km between two {lat, lng} payloads (inf if either is unusable)."""
+    try:
+        dy = (a["lat"] - b["lat"]) * 111.0
+        dx = (a["lng"] - b["lng"]) * 111.0 * math.cos(math.radians(a["lat"]))
+        return math.hypot(dx, dy)
+    except (KeyError, TypeError):
+        return float("inf")

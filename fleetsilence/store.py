@@ -45,13 +45,17 @@ class Event:
 
 class Summary:
     """What is known about one device from its first n events (in received order)."""
-    __slots__ = ("n", "last_contact", "last", "first", "latest", "rare")
+    __slots__ = ("n", "last_contact", "last", "first", "first_position", "live_since", "latest", "rare")
+    contact_break_s = 360      # set from settings by Store: a gap this long ends a run of live contact
+    backfill_lateness_s = 120  # set from settings by Store: events this late are buffered, not live
 
     def __init__(self):
         self.n = 0
         self.last_contact = None   # latest received time of anything the device itself sent
         self.last = None           # the device's own latest event, by device time
         self.first = None          # the device's own earliest event, by device time
+        self.first_position = None
+        self.live_since = None     # start of the current unbroken run of on-time contact (received time)
         self.latest = {}           # key -> latest event of that kind, by device time
         self.rare = []             # all power, command, plan and storage-error events
 
@@ -65,12 +69,17 @@ class Summary:
         if e.type in PLATFORM_TYPES:
             self.rare.append(e)
             return
+        if (self.last_contact is None or e.r - self.last_contact > self.contact_break_s
+                or e.r - e.t > self.backfill_lateness_s):
+            self.live_since = e.r
         if self.last_contact is None or e.r > self.last_contact:
             self.last_contact = e.r
         if self.last is None or (e.t, e.r) >= (self.last.t, self.last.r):
             self.last = e
         if self.first is None or e.t < self.first.t:
             self.first = e
+        if e.type == "position" and (self.first_position is None or e.t < self.first_position.t):
+            self.first_position = e
         if e.type in MOTION_TYPES:
             cur = latest.get("motion")
             if cur is None or (e.t, e.r) >= (cur.t, cur.r):
@@ -155,6 +164,8 @@ class Store:
         self.stats = {"received": 0, "stored": 0, "duplicates": 0, "rejected": 0, "bx_undecodable": 0}
         self._future = cfg.ingest["clock_future_tolerance_s"]
         self._late = cfg.ingest["max_trusted_lateness_h"] * 3600
+        Summary.contact_break_s = cfg.tracker["drive_quiet_min"] * 60
+        Summary.backfill_lateness_s = cfg.ingest["backfill_lateness_s"]
 
     # ---------------------------------------------------------------- ingest
     def ingest(self, events):
