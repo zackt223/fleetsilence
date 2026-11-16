@@ -67,6 +67,7 @@ class RefData:
             j = Job(r["job_id"], r.get("asset_id", ""), r.get("depot", ""), s, e, r.get("job_type", ""))
             self.jobs.append(j)
         self.jobs.sort(key=lambda j: (j.start, j.job_id))
+        self.longest_job = max((j.end - j.start for j in self.jobs), default=0)
         for j in self.jobs:
             self.jobs_by_depot[j.depot].append(j)
             self.jobs_by_asset[j.asset_id].append(j)
@@ -89,6 +90,13 @@ class RefData:
         lo = bisect.bisect_left(jobs, start, key=lambda j: j.start)
         hi = bisect.bisect_left(jobs, end, key=lambda j: j.start)
         return jobs[lo:hi]
+
+    def jobs_under_way(self, depot, at):
+        """Jobs at the depot that started before `at` and have not ended."""
+        jobs = self.jobs_by_depot.get(depot, [])
+        hi = bisect.bisect_left(jobs, at, key=lambda j: j.start)
+        lo = bisect.bisect_left(jobs, at - self.longest_job, key=lambda j: j.start)
+        return [j for j in jobs[lo:hi] if j.end > at]
 
     def busy(self, asset_id, start, end, ignore_job=None):
         """The first scheduled job on the asset overlapping [start, end), or None."""

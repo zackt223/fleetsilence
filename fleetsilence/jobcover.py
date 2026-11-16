@@ -14,13 +14,18 @@ Rules built in here:
   never offered as a replacement.
 * When many vehicles are quiet for one outside reason (a carrier outage), no
   jobs are moved; it is said once, in `notices`.
+* Replacements are shared out so the most jobs are covered: an earlier job is
+  moved to a different free vehicle rather than leave a later one with none.
+* A job already under way on a vehicle that can't be seen is said in `notices`
+  (the contract's `jobs` list is only for jobs starting in the window).
 """
 from collections import defaultdict
 
 from .status import ACTION
-from .timeutil import iso
+from .timeutil import duration, iso
 
 NOT_THE_VEHICLE = ("carrier_outage",)     # causes that nothing done to the vehicle can fix
+BLIND = {"no_location": "untracked", "no_video": "unrecorded", "both": "untracked and unrecorded"}
 
 
 class Health:
@@ -80,35 +85,36 @@ class JobCover:
         snap = self.engine.snapshot(at)
         jobs = self.ref.jobs_starting(depot, at, at + hours * 3600)
         memo = {}
-        assigned = defaultdict(list)      # replacement asset -> [(start, end)] handed out in this answer
-        moved_to = {}                     # troubled asset -> replacement already chosen for it
-        items, watch = [], defaultdict(list)
-        counts = {"swap": 0, "gap": 0}
-
+        watch = defaultdict(list)
+        troubled = []                     # (job, asset row, health) for every job that can't be seen or recorded
         for job in jobs:
             asset = self.ref.assets.get(job.asset_id)
             if not asset:
                 continue
             h = self.health(snap, job.asset_id, memo)
-            problem = h.problem
-            if not problem:
-                if h.soft:
-                    watch[job.asset_id].append(job)
-                continue
+            if h.problem:
+                troubled.append((job, asset, h))
+            elif h.soft:
+                watch[job.asset_id].append(job)
 
+        options = {job.job_id: self._candidates(snap, job, asset, h, memo) for job, asset, h in troubled}
+        placed, load = self._allocate([job for job, _, _ in troubled], options)
+
+        items = []
+        counts = {"swap": 0, "gap": 0}
+        lead = self.cfg.jobcover.get("recheck_lead_h", 12) * 3600
+        for job, asset, h in troubled:
             issues = [i for i in (h.location_issue, h.video_issue) if i]
             reasons = [r for i in issues for r in i.reasons]
             evidence = []
             for i in issues:
                 evidence += [x for x in i.evidence if x not in evidence]
             slot = f"{self.clock.fmt(depot, job.start, at)}-{self.clock.fmt(depot, job.end, job.start)}"
-            item = {"job_id": job.job_id, "asset_id": job.asset_id, "problem": problem, "decision": None,
+            item = {"job_id": job.job_id, "asset_id": job.asset_id, "problem": h.problem, "decision": None,
                     "swap_to": None, "manager_action": "", "reasons": reasons, "evidence": evidence}
-
-            target, why_not = self._replacement(snap, job, asset, h, memo, assigned, moved_to.get(job.asset_id))
+            opts, tally = options[job.job_id]
+            target = placed.get(job.job_id)
             if target:
-                assigned[target].append((job.start, job.end))
-                moved_to[job.asset_id] = target
                 t = self.ref.assets[target]
                 item["decision"], item["swap_to"] = "swap", target
                 cam = " with a working camera" if snap.asset_cameras(target) else ""
@@ -116,37 +122,55 @@ class JobCover:
                     f"{target} is a {t.get('type')} at {snap.depot_name(depot)}{cam}, has no other job during {slot},"
                     " and its tracker is reporting normally.")
                 item["manager_action"] = f"Move {job.job_id} ({slot}, {job.job_type}) from {job.asset_id} to {target}."
-                if why_not:      # second-best: tracked, but not recorded
-                    item["reasons"].append(why_not)
+                if opts[target][0]:      # second-best: tracked, but not recorded
+                    kind, others, detail = self._why(job, asset, opts, tally, load)
+                    item["reasons"].append(f"No {kind} with a working camera is free (of the {others}, {detail}),"
+                                           f" so the job moves to a {kind} without a camera: tracked, but not recorded.")
                     item["manager_action"] += " It will be tracked but not recorded: no van with a working camera is free."
             else:
                 item["decision"] = "gap"
-                item["reasons"].append(why_not)
-                blind = {"no_location": "untracked", "no_video": "unrecorded", "both": "untracked and unrecorded"}[problem]
+                kind, others, detail = self._why(job, asset, opts, tally, load)
+                tail = (" A van without a camera would not fix a recording problem, so none is offered."
+                        if tally["no camera"] and not h.location_issue else "")
+                item["reasons"].append(f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
+                                       f" {detail}.{tail}")
+                blind = BLIND[h.problem]
                 item["manager_action"] = (
                     f"No replacement for {job.job_id} ({slot}). Reschedule it, or get {job.asset_id} fixed before then;"
                     f" otherwise it goes out {blind}.")
+            if job.start - at > lead:
+                # Both vehicles are judged on what is known now. Nobody can know their state at the job's start.
+                item["manager_action"] += (f" The job starts in {duration(job.start - at)}; this is based on what is"
+                                           " known now, so ask again nearer the time.")
             counts[item["decision"]] += 1
             items.append(item)
 
+        under_way = self._under_way(snap, depot, at, memo)
         return {
             "depot": depot, "at": iso(at), "hours": hours,
             "jobs": items,
-            "notices": self._notices(snap, depot, watch, memo),
-            "summary": {"jobs_in_window": len(jobs), "at_risk": len(items), **counts},
+            "notices": under_way + self._notices(snap, depot, watch, memo),
+            "summary": {"jobs_in_window": len(jobs), "at_risk": len(items), **counts,
+                        "under_way_at_risk": sum(len(n["job_ids"]) for n in under_way)},
         }
 
-    def _replacement(self, snap, job, asset, h, memo, assigned, previous):
-        """Pick the replacement vehicle, or explain why there is none. Returns (asset_id, reason)."""
+    def _candidates(self, snap, job, asset, h, memo):
+        """Vehicles that could take the job if nothing else were being moved.
+
+        Returns ({asset_id: (tier, other use, jobs that day, asset_id)}, tally of why the rest can't).
+        Tier 0 is a full replacement; tier 1 is a van without a camera, offered only when the job's own
+        vehicle can't be tracked at all.
+        """
         cfg = self.cfg.jobcover
         need_camera = cfg["require_working_camera_for_camera_vans"] and bool(h.cameras)
+        allow_camera_less = bool(h.location_issue) and cfg["camera_less_fallback_when_untracked"]
         tally = defaultdict(int)
-        best = fallback = None
+        opts = {}
         for aid, row in self.ref.assets.items():
             if aid == job.asset_id or row.get("type") != asset.get("type") or row.get("depot") != asset.get("depot"):
                 continue
             tally["same type"] += 1
-            if self.ref.busy(aid, job.start, job.end) or any(s < job.end and job.start < e for s, e in assigned[aid]):
+            if self.ref.busy(aid, job.start, job.end):
                 tally["busy"] += 1
                 continue
             c = self.health(snap, aid, memo)
@@ -157,18 +181,74 @@ class JobCover:
                 tally["unhealthy"] += 1
                 continue
             day = sum(1 for j in self.ref.jobs_by_asset.get(aid, []) if abs(j.start - job.start) < 12 * 3600)
-            rank = (aid != previous,
-                    cfg["prefer_same_use"] and row.get("use") != asset.get("use"),
-                    day + len(assigned[aid]), aid)
+            other_use = bool(cfg["prefer_same_use"] and row.get("use") != asset.get("use"))
             if need_camera and not c.cameras:
                 tally["no camera"] += 1
-                if fallback is None or rank < fallback[0]:
-                    fallback = (rank, aid)
+                if allow_camera_less:
+                    opts[aid] = (1, other_use, day, aid)
                 continue
-            if best is None or rank < best[0]:
-                best = (rank, aid)
-        if best:
-            return best[1], ""
+            opts[aid] = (0, other_use, day, aid)
+        return opts, tally
+
+    def _allocate(self, jobs, options):
+        """Hand out replacements so that as many jobs as possible are covered.
+
+        Jobs are taken in start order. When every vehicle a job could use has already been given to an
+        earlier job in the same slot, the earlier job is moved to another vehicle if it has one, instead
+        of leaving this job without cover. Returns ({job_id: asset_id}, {asset_id: [jobs moved onto it]}).
+        """
+        depth = self.cfg.jobcover.get("reshuffle_depth", 3)
+        placed, load = {}, defaultdict(list)
+
+        def clash(a, job):
+            return [j for j in load[a] if j.start < job.end and job.start < j.end]
+
+        def order(job, tier_max, locked):
+            opts = options[job.job_id][0]
+            mine = {a for a, js in load.items() if any(j.asset_id == job.asset_id for j in js)}
+            # full replacement first, then the vehicle already covering this asset's other jobs, same use, lightest day
+            return sorted((a for a in opts if opts[a][0] <= tier_max and a not in locked),
+                          key=lambda a: (opts[a][0], a not in mine, opts[a][1], opts[a][2] + len(load[a]), a))
+
+        def place(job, tier_max, depth, locked):
+            cands = order(job, tier_max, locked)
+            for a in cands:
+                if not clash(a, job):
+                    load[a].append(job)
+                    placed[job.job_id] = a
+                    return True
+            if depth <= 0:
+                return False
+            for a in cands:
+                saved = ({k: list(v) for k, v in load.items()}, dict(placed))
+                out = clash(a, job)
+                for j in out:
+                    load[a].remove(j)
+                    del placed[j.job_id]
+                load[a].append(job)
+                placed[job.job_id] = a
+                # a job that is pushed out never ends up worse off than it was
+                if all(place(j, max(tier_max, options[j.job_id][0][a][0]), depth - 1, locked | {a}) for j in out):
+                    return True
+                load.clear()
+                load.update(saved[0])
+                placed.clear()
+                placed.update(saved[1])
+            return False
+
+        for job in jobs:
+            if not place(job, 0, depth, frozenset()):
+                place(job, 1, depth, frozenset())
+        return placed, load
+
+    def _why(self, job, asset, opts, tally, load):
+        """Words for why the other vehicles of this type can't take the job: (kind, 'N other vans', detail)."""
+        tally = defaultdict(int, tally)
+        for a, rank in opts.items():
+            if any(j.job_id != job.job_id and j.start < job.end and job.start < j.end for j in load[a]):
+                tally["taken"] += 1
+                if rank[0]:
+                    tally["no camera"] -= 1
         kind = asset.get("type") or "vehicle"
 
         def n(key, one, many):
@@ -176,22 +256,44 @@ class JobCover:
         parts = []
         if tally["busy"]:
             parts.append(n("busy", "already has", "already have") + " a job in that slot")
+        if tally["taken"]:
+            parts.append(n("taken", "is", "are") + " covering another moved job in that slot")
         if tally["unhealthy"]:
             parts.append(n("unhealthy", "can't be seen or recorded itself", "can't be seen or recorded themselves"))
         if tally["outage"]:
             parts.append(n("outage", "is", "are") + " on the carrier that is down")
-        if tally["no camera"]:
+        if tally["no camera"] > 0:
             parts.append(n("no camera", "is free but has", "are free but have") + " no camera")
         detail = "; ".join(parts) if parts else "there are none"
         others = f"{tally['same type']} other {kind}{'' if tally['same type'] == 1 else 's'}"
-        if fallback and h.location_issue and cfg["camera_less_fallback_when_untracked"]:
-            # The vehicle can't be tracked at all. A tracked van without a camera beats sending the job out blind.
-            return fallback[1], (f"No {kind} with a working camera is free (of the {others}, {detail}),"
-                                 f" so the job moves to a {kind} without a camera: tracked, but not recorded.")
-        tail = (" A van without a camera would not fix a recording problem, so none is offered."
-                if tally["no camera"] else "")
-        return None, (f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
-                      f" {detail}.{tail}")
+        return kind, others, detail
+
+    def _under_way(self, snap, depot, at, memo):
+        """Jobs that had already started at `at` on a vehicle that can't be seen or recorded.
+
+        The contract's `jobs` list covers only jobs that start in the window, so these are said here:
+        it is too late to swap them, but the manager still needs to know.
+        """
+        by_asset = defaultdict(list)
+        for job in self.ref.jobs_under_way(depot, at):
+            if job.asset_id in self.ref.assets and self.health(snap, job.asset_id, memo).problem:
+                by_asset[job.asset_id].append(job)
+        out = []
+        for asset_id, jobs in sorted(by_asset.items()):
+            h = memo[asset_id]
+            issues = [i for i in (h.location_issue, h.video_issue) if i]
+            evidence = []
+            for i in issues:
+                evidence += [x for x in i.evidence if x not in evidence]
+            names = ", ".join(f"{j.job_id} (until {self.clock.fmt(depot, j.end, at)})" for j in jobs)
+            out.append({
+                "kind": "job_under_way", "asset_ids": [asset_id], "job_ids": [j.job_id for j in jobs],
+                "problem": h.problem, "likely_cause": issues[0].cause,
+                "manager_action": (f"{names} is already under way on {asset_id}, which is {BLIND[h.problem]} right now."
+                                   " It is too late to swap: call the crew."),
+                "reasons": [r for i in issues for r in i.reasons], "evidence": evidence,
+            })
+        return out
 
     def _notices(self, snap, depot, watch, memo):
         """Things the manager should know once, not once per job. No job listed here is moved."""

@@ -70,7 +70,11 @@ Two fields go beyond the contract (the contract's own fields are untouched):
 - `notices` — things said **once** instead of once per job. A carrier outage appears here as a single
   item listing the affected vehicles and jobs; so does a vehicle that is probably just in a dead zone.
   Nothing listed under `notices` is moved.
-- `summary` — counts for the window.
+- `summary` — counts for the window, plus `under_way_at_risk`.
+
+A job that had **already started** at `at` on a vehicle that can't be seen or recorded is not in `jobs`
+(the contract limits that list to jobs starting in the window, and the exam tool rejects anything else).
+It is a `job_under_way` item in `notices`: too late to swap, but the manager should call the crew.
 
 ## How it decides
 
@@ -113,6 +117,11 @@ a one-word setting in `settings.toml` under `[status]`: whether a parked tracker
 - A camera van moves to another van with a working camera. If none is free and the problem is tracking,
   it falls back to a van without a camera (tracked but not recorded beats blind) and says so. A
   recording-only problem never falls back: that swap would fix nothing.
+- Replacements are shared out so the most jobs are covered. If the only vehicle a job could use was already
+  given to an earlier job, the earlier job is moved to another free vehicle where it has one
+  (`jobcover.reshuffle_depth`).
+- Both vehicles are judged on what is known at `at`; nobody can know their state at the job's start. A job
+  more than `jobcover.recheck_lead_h` (12) hours ahead says so in `manager_action`.
 - `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or
   have no camera.
 - The contract also allows `keep`. This service never answers it: a job is either moved or reported as

@@ -25,7 +25,7 @@ class SwapTest(unittest.TestCase):
         body = cover(app, AT)
         self.assertEqual({k: body[k] for k in ("depot", "at", "hours")}, {"depot": "MSS", "at": iso(AT), "hours": 24})
         self.assertEqual(set(body), {"depot", "at", "hours", "jobs", "notices", "summary"})
-        self.assertEqual(body["summary"], {"jobs_in_window": 1, "at_risk": 1, "swap": 1, "gap": 0})
+        self.assertEqual(body["summary"], {"jobs_in_window": 1, "at_risk": 1, "swap": 1, "gap": 0, "under_way_at_risk": 0})
         self.assertEqual(body["notices"], [])
         self.assertEqual(set(body["jobs"][0]), {"job_id", "asset_id", "problem", "decision", "swap_to",
                                                 "manager_action", "reasons", "evidence"})
@@ -76,6 +76,57 @@ class SwapTest(unittest.TestCase):
         self.assertEqual([j["job_id"] for j in cover(app, AT, hours=24)["jobs"]], ["J-in"])
         self.assertEqual([j["job_id"] for j in cover(app, AT, hours=72)["jobs"]], ["J-in", "J-late"])
         self.assertEqual(cover(app, AT, depot="REG")["jobs"], [])
+
+
+class SharingOutTest(unittest.TestCase):
+    def test_an_earlier_swap_is_rearranged_so_a_later_job_is_not_left_without_cover(self):
+        # J-A could go to V-11 or V-12. J-B can only go to V-11, because V-12 has its own job late in J-B's slot.
+        # Handing V-11 to J-A (first come, first served) would leave J-B with nothing.
+        a, b = (T0 + 2 * HOUR, T0 + 4 * HOUR), (T0 + 2 * HOUR + 30 * MIN, T0 + 4 * HOUR + 30 * MIN)
+        jobs = [("J-A", "V-5", *a), ("J-B", "V-6", *b), ("J-own", "V-12", T0 + 4 * HOUR + 15 * MIN, T0 + 5 * HOUR)]
+        jobs += [(f"J-busy{n}", f"V-{n}", T0 + HOUR, T0 + 6 * HOUR) for n in (1, 2, 3, 4, 7, 8, 9, 10)]
+        app = make_app(jobs=jobs)
+        healthy_fleet(app, AT, skip={"T-5", "T-6"})
+        app.ingest({"events": power_loss("T-5", AT) + power_loss("T-6", AT)})
+        body = cover(app, AT)
+        got = {j["job_id"]: (j["decision"], j["swap_to"]) for j in body["jobs"]}
+        self.assertEqual(got, {"J-A": ("swap", "V-12"), "J-B": ("swap", "V-11")})
+        self.assertEqual((body["summary"]["swap"], body["summary"]["gap"]), (2, 0))
+
+    def test_a_gap_says_when_the_free_vehicle_went_to_another_moved_job(self):
+        jobs = [("J-A", "V-5", *JOB), ("J-B", "V-6", *JOB)]
+        jobs += [(f"J-busy{n}", f"V-{n}", T0 + HOUR, T0 + 6 * HOUR) for n in (1, 2, 3, 4, 7, 8, 9, 10, 11)]
+        app = make_app(jobs=jobs)
+        healthy_fleet(app, AT, skip={"T-5", "T-6"})
+        app.ingest({"events": power_loss("T-5", AT) + power_loss("T-6", AT)})
+        got = {j["job_id"]: j for j in cover(app, AT)["jobs"]}
+        self.assertEqual((got["J-A"]["swap_to"], got["J-B"]["decision"]), ("V-12", "gap"))
+        self.assertIn("1 is covering another moved job in that slot", " ".join(got["J-B"]["reasons"]))
+
+
+class TimingTest(unittest.TestCase):
+    def test_a_job_already_under_way_on_a_dark_vehicle_is_said_in_notices(self):
+        app = make_app(jobs=[("J-now", "K-1", AT - HOUR, AT + HOUR), ("J-done", "K-1", AT - 5 * HOUR, AT - 2 * HOUR),
+                             ("J-fine", "K-2", AT - HOUR, AT + HOUR)])
+        healthy_fleet(app, AT, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", AT)})
+        body = cover(app, AT)
+        self.assertEqual(body["jobs"], [])               # the contract's list is only for jobs starting in the window
+        (n,) = body["notices"]
+        self.assertEqual((n["kind"], n["asset_ids"], n["job_ids"], n["problem"], n["likely_cause"]),
+                         ("job_under_way", ["K-1"], ["J-now"], "no_location", "power_loss"))
+        self.assertIn("call the crew", n["manager_action"])
+        self.assertTrue(n["reasons"] and n["evidence"])
+        self.assertEqual(body["summary"]["under_way_at_risk"], 1)
+
+    def test_a_job_far_ahead_is_marked_as_based_on_what_is_known_now(self):
+        app = make_app(jobs=[("J-soon", "K-1", *JOB), ("J-later", "K-1", AT + 30 * HOUR, AT + 32 * HOUR)])
+        healthy_fleet(app, AT, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", AT)})
+        got = {j["job_id"]: j["manager_action"] for j in cover(app, AT, hours=48)["jobs"]}
+        self.assertNotIn("ask again", got["J-soon"])
+        self.assertIn("starts in 30 h", got["J-later"])
+        self.assertIn("ask again nearer the time", got["J-later"])
 
 
 class DeadZoneTest(unittest.TestCase):
