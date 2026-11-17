@@ -91,5 +91,5 @@ for ts, role, text in merged:
         body.append(text + "\n")
     else:
         body.append(f"## {label[role]} · {ts}\n\n{text}\n")
-open(out_path, "w", encoding="utf-8", newline="\n").write(head + "\n" + "\n".join(body))
+open(out_path, "w", encoding="utf-8", newline="\n").write(redact(head + "\n" + "\n".join(body)))
 print(len(merged), "blocks;", n_user, "user;", n_ai, "assistant")
