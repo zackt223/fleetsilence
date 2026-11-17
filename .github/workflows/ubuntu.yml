@@ -29,6 +29,7 @@ jobs:
             echo "confirmed: no network"'
 
       - name: README start command, offline, on a pack it has never seen
+        timeout-minutes: 3
         run: |
           python3 -I tools/make_test_pack.py /tmp/otherpack
           sudo unshare --net sh -c '
@@ -41,11 +42,15 @@ jobs:
             done
             echo
             curl -sf "http://localhost:8080/job-cover?depot=YYC&at=2027-03-10T21:00:00Z&hours=24" | head -c 600; echo
-            kill -INT $pid; wait $pid
+            # SIGTERM, as systemd or docker would send (a background job in sh ignores SIGINT)
+            kill -TERM $pid
+            for i in $(seq 1 20); do kill -0 $pid 2>/dev/null || break; sleep 0.5; done
+            if kill -0 $pid 2>/dev/null; then echo "service did not stop on SIGTERM"; kill -KILL $pid; exit 1; fi
             cat /tmp/service.log
             grep -q "stopped" /tmp/service.log'
 
       - name: All tests, offline (unit tests, HTTP, generated pack end to end)
+        timeout-minutes: 8
         run: |
           sudo unshare --net sh -c '
             ip link set lo up

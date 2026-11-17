@@ -1,6 +1,7 @@
 """HTTP API (standard library only; nothing here touches the network beyond localhost)."""
 import json
 import re
+import signal
 import socket
 import socketserver
 import sys
@@ -214,6 +215,13 @@ def serve(data_dir, host=None, port=None):
     print(f"[fleetsilence] {len(ref.assets)} assets, {len(ref.devices)} devices, {len(ref.jobs)} jobs loaded from {data_dir}",
           file=sys.stderr)
     print(f"[fleetsilence] listening on http://localhost:{port} (state is in memory and starts empty)", file=sys.stderr, flush=True)
+    # Stop the same clean way on SIGTERM (what systemd, Docker and `kill` send) as on Ctrl-C.
+    def _stop(signum, frame):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, _stop)
+    except (ValueError, OSError):        # not in the main thread (tests that embed the server)
+        pass
     threads = [threading.Thread(target=s.serve_forever, name=f"listener-{i}") for i, s in enumerate(servers[1:], 1)]
     for t in threads:
         t.start()
