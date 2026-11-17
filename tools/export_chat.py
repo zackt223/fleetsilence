@@ -17,7 +17,7 @@ def clean(text):
 
 
 def redact(text):
-    return re.sub(r"(Users[\/]+)[^\/\s]+", r"\g<1><user>", text)
+    return re.sub(r"(Users[\/]+)[^\/\s<]+", r"\g<1><user>", text)
 
 
 for f in files:
