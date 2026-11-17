@@ -70,6 +70,15 @@ faulted camera regardless.
 | `tag.cold_max_missed_days` | 5 | Calibrated | The longest cold silence was 3 missed check-ins in a row. |
 | `tag.downtime_peer_fraction` / `seasonal_downtime` | 0.5 / landscaping Oct 15–Apr 15 | Calibrated | All 12 landscaping trailers stopped checking in on the same day (Oct 23) with healthy batteries (40–84 %) in mild weather: equipment put away for the season, not twelve faults. |
 
+## Job cover: when a job is kept on its vehicle
+
+| Setting | Value | Source | Evidence |
+|---|---|---|---|
+| `jobcover.remote_reboot_fix_min` | 90 | Calibrated | 40 `camera_fault` cases: 28 fixed by a remote reboot, all closed within 1.1 h of opening (median 0.5 h); 12 needed a technician after the reboot failed twice. Used only while no reboot has failed yet. |
+| `jobcover.technician_done_by_local` | 14:00 | Calibrated | 26 technician visits to vehicles (14 `power_loss`, 12 `camera_fault`): every one on the next working day after the case opened, finished between 08:00 and 13:45 local. |
+| `jobcover.technician_works_weekends` | false | Calibrated | No vehicle visit in the history happened on a Saturday or Sunday; Friday cases were all closed on Monday. |
+| (plan paused) | never kept | Calibrated | 11 `plan_paused` cases took 30–62 h to resolve, by an account action nobody can schedule. |
+
 ## Ingest
 
 | Setting | Value | Source | Evidence |

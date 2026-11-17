@@ -58,7 +58,7 @@ curl "http://localhost:8080/job-cover?depot=REG&at=2026-10-26T23:30:00Z&hours=24
     "evidence": ["e33683614", "e78779377", "e97794714"]
   }],
   "notices": [],
-  "summary": {"jobs_in_window": 168, "at_risk": 2, "swap": 2, "gap": 0}
+  "summary": {"jobs_in_window": 168, "at_risk": 2, "swap": 2, "gap": 0, "keep": 0, "under_way_at_risk": 0}
 }
 ```
 
@@ -70,7 +70,8 @@ Two fields go beyond the contract (the contract's own fields are untouched):
 - `notices` — things said **once** instead of once per job. A carrier outage appears here as a single
   item listing the affected vehicles and jobs; so does a vehicle that is probably just in a dead zone.
   Nothing listed under `notices` is moved.
-- `summary` — counts for the window, plus `under_way_at_risk`.
+- `summary` — counts for the window: jobs starting in it, at-risk jobs, how many are `swap`, `gap` and
+  `keep`, and `under_way_at_risk`.
 
 A job that had **already started** at `at` on a vehicle that can't be seen or recorded is not in `jobs`
 (the contract limits that list to jobs starting in the window, and the exam tool rejects anything else).
@@ -122,16 +123,25 @@ a one-word setting in `settings.toml` under `[status]`: whether a parked tracker
   (`jobcover.reshuffle_depth`).
 - Both vehicles are judged on what is known at `at`; nobody can know their state at the job's start. A job
   more than `jobcover.recheck_lead_h` (12) hours ahead says so in `manager_action`.
-- `keep`: the job stays on its vehicle because the fault should be fixed before it starts. A camera fault
-  with no failed reboot yet is expected back within 90 minutes (a remote reboot fixed 28 of 40 camera
-  faults in the case history, each within about an hour). Anything that needs a technician is expected
-  fixed by 14:00 local on the next working day (all 26 vehicle visits in the history were next working
-  day and finished by 13:45). Jobs before that time are still moved. A paused plan is never kept. Switch
-  it off with `jobcover.keep_when_fix_expected = false`.
-- `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or
-  have no camera.
-- The contract also allows `keep`. This service never answers it: a job is either moved or reported as
-  having no replacement.
+- `keep`: the job stays on its vehicle because the fault should be fixed before the job starts. The data
+  has no feed of planned repairs, so the service estimates the fix time from the support-case history:
+
+  | Fault | Expected fixed by | Evidence in the case history |
+  |---|---|---|
+  | Camera fault, no failed reboot yet | 90 min after `at` (`remote_reboot_fix_min`) | All 28 camera faults fixed by a reboot closed within 1.1 h |
+  | Anything that needs a technician: power loss, unexplained silence, a camera after a failed reboot | 14:00 local on the next working day (`technician_done_by_local`, `technician_works_weekends`) | All 26 vehicle visits were the next working day, never at a weekend, and finished by 13:45 |
+  | Paused data plan | never kept | These took 30 to 62 h to resolve |
+
+  A job that starts before the expected fix is still moved (or is a `gap`); only jobs after it are kept.
+  With two faults on one vehicle, the later fix counts. The kept job's `manager_action` says when the fix
+  is due and to ask again if it has not happened; the next answer will then move the job, because a
+  failed reboot or a missed visit pushes the expected fix later.
+
+  The reboot keep is a bet: 12 of the 40 camera faults in the history were not fixed by a reboot and
+  needed a technician the next day. Turn `keep` off with `jobcover.keep_when_fix_expected = false`, and
+  the service goes back to moving every at-risk job it can.
+- `gap`: no vehicle qualifies. The reason counts why: how many are busy, covering another moved job,
+  unhealthy, on a dead carrier, or have no camera.
 - Carrier outage: nothing is moved, and jobs on affected vehicles are not listed under `jobs` (the network
   is down, not the vehicles). The outage is said once, in `notices`. Vehicles on the affected carrier are
   not offered as replacements until it is back.
