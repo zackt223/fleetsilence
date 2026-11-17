@@ -2,6 +2,7 @@
 import json
 import re
 import socket
+import socketserver
 import sys
 import threading
 import traceback
@@ -33,11 +34,30 @@ class App:
     def __init__(self, data_dir, cfg=None):
         self.cfg = cfg or config.load()
         self.ref = RefData(data_dir)
-        self.clock = Clock(self.cfg.depots)
+        self.clock = Clock(self.cfg.depots, self._infer_time_zones())
         self.store = Store(self.cfg)
         self.engine = Engine(self.cfg, self.ref, self.store, self.clock)
         self.cover = JobCover(self.engine)
         self._seed_plan_changes()
+
+    def _infer_time_zones(self):
+        """Depots in the data that settings.toml has no time zone for get one estimated from the schedule."""
+        missing = {d: self.ref.jobs_by_depot.get(d, []) for d in sorted(self.ref.depots) if d not in self.cfg.depots}
+        if not missing:
+            return {}
+        hh, mm = (int(x) for x in str((self.cfg.get("clock") or {}).get("workday_start_local", "07:30")).split(":"))
+        inferred = Clock.infer_offsets(missing, hh + mm / 60)
+        for depot in missing:
+            est = inferred.get(depot)
+            if est:
+                seen = sorted({o for _, o in est})
+                print(f"[fleetsilence] warning: no time zone for depot {depot} in settings.toml; estimated UTC"
+                      f"{'/'.join(f'{o:+d}' for o in seen)} from its schedule. Add [depots.{depot}] to be exact.",
+                      file=sys.stderr)
+            else:
+                print(f"[fleetsilence] warning: no time zone for depot {depot} in settings.toml and no jobs to estimate"
+                      f" one from; using UTC. Add [depots.{depot}] to settings.toml.", file=sys.stderr)
+        return inferred
 
     def _seed_plan_changes(self):
         """plan_changes.csv is a copy of the history's plan_change events. Loading it means a paused
@@ -165,6 +185,13 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     request_queue_size = 64
+
+    def server_bind(self):
+        # HTTPServer.server_bind looks the host up with socket.getfqdn(), a reverse-DNS query. With no network
+        # that can stall for seconds, and the name is never used, so bind without it.
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = str(host), port
 
 
 class _Server6(_Server):

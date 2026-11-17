@@ -27,6 +27,34 @@ starts empty every time. It makes no network calls.
 
 On Windows the same command is `py -3.12 -m fleetsilence`.
 
+### Ubuntu, no network, any data pack
+
+- **Ubuntu 24.04.** Uses the `python3` Ubuntu ships (3.12) and nothing else. The GitHub Actions job
+  `.github/workflows/ubuntu.yml` runs the start command and every test on an `ubuntu-24.04` runner.
+- **No network.** That job runs inside a Linux network namespace with only a loopback interface, after
+  first proving the internet can't be reached from it. `tests/test_portability.py` also starts the service
+  behind a Python audit hook that blocks and reports any name lookup or connection to another machine. The
+  service never resolves a name, not even its own (the standard HTTP server's reverse-DNS lookup at startup
+  is skipped).
+- **Any data pack.** Nothing in the code names an asset, device, job, carrier or date: all of it comes
+  from `QF_DATA_DIR` and `/ingest`. CSV columns are read by name, in any order, with or without a
+  byte-order mark or Windows line endings; a missing or broken file is a warning, not a crash. A depot
+  that `settings.toml` doesn't list gets its time zone estimated from its schedule (the working day starts
+  at about 07:30 local), day by day so daylight-saving changes are followed, with a warning at startup;
+  add `[depots.<code>]` to make it exact. `tools/make_test_pack.py` generates a pack that shares nothing
+  with the take-home pack (other depots, ids, carriers and vehicle types, March 2027 across a
+  daylight-saving change, messy files and events) plus a scenario file for the exam tool:
+
+  ```bash
+  python3 tools/make_test_pack.py /tmp/otherpack
+  QF_DATA_DIR=/tmp/otherpack/data python3 -m fleetsilence
+  python3 qf_exam.py run /tmp/otherpack/scenario.json --data /tmp/otherpack/data --persona fleet
+  ```
+
+  What a different pack can still change: the thresholds in `settings.toml` were calibrated on the
+  take-home history (see `THRESHOLDS.md`). A fleet whose devices report on a different rhythm needs them
+  re-tuned; `tools/calibrate.py` recomputes the figures from a pack's telemetry.
+
 ## What it answers
 
 | Endpoint | Answer |

@@ -83,6 +83,12 @@ recheck_lead_h = 12
 # How many earlier swaps may be re-arranged to free a vehicle for a job that would otherwise have none.
 reshuffle_depth = 3
 
+[clock]
+# For a depot not listed below, the service estimates its time zone from the schedule: the working day starts
+# at about this local time. CALIBRATED: in the take-home schedule the first job of every working day starts at
+# 07:30 local in both depots. A depot listed below always uses its listed time zone.
+workday_start_local = "07:30"
+
 [depots.MSS]
 name = "Mississauga"
 utc_offset_h = -5                # GIVEN: Eastern Time

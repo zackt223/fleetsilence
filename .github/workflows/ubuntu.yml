@@ -1,0 +1,52 @@
+name: ubuntu-24.04, no network
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python is the one Ubuntu 24.04 ships (3.12), nothing installed
+        run: |
+          python3 --version
+          python3 -c "import sys; assert sys.version_info[:2] == (3, 12), sys.version"
+
+      # Everything below runs inside a new network namespace that has only a loopback interface:
+      # the network is not blocked, it does not exist. unshare needs root; the commands run as root.
+      - name: The network really is gone inside the namespace
+        run: |
+          sudo unshare --net sh -c '
+            ip link set lo up
+            ip -brief addr
+            if python3 -c "import urllib.request; urllib.request.urlopen(\"https://pypi.org\", timeout=5)"; then
+              echo "network is reachable: the check is broken"; exit 1
+            fi
+            echo "confirmed: no network"'
+
+      - name: README start command, offline, on a pack it has never seen
+        run: |
+          python3 -I tools/make_test_pack.py /tmp/otherpack
+          sudo unshare --net sh -c '
+            ip link set lo up
+            QF_DATA_DIR=/tmp/otherpack/data python3 -m fleetsilence > /tmp/service.log 2>&1 &
+            pid=$!
+            for i in $(seq 1 60); do
+              curl -sf http://localhost:8080/health && break
+              sleep 0.5
+            done
+            echo
+            curl -sf "http://localhost:8080/job-cover?depot=YYC&at=2027-03-10T21:00:00Z&hours=24" | head -c 600; echo
+            kill -INT $pid; wait $pid
+            cat /tmp/service.log
+            grep -q "stopped" /tmp/service.log'
+
+      - name: All tests, offline (unit tests, HTTP, generated pack end to end)
+        run: |
+          sudo unshare --net sh -c '
+            ip link set lo up
+            python3 -m unittest discover -s tests -t . -v'
