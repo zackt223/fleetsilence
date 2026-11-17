@@ -1,13 +1,20 @@
 """Turn Claude Code session files into one readable Markdown chat log.
 
-    python3 tools/export_chat.py AI_CHAT_LOG.md SESSION1.jsonl [SESSION2.jsonl ...]
+    python3 tools/export_chat.py AI_CHAT_LOG.md SESSION1.jsonl [SESSION2.jsonl ...] [--exclude TEXT ...]
+
+--exclude TEXT leaves out every user message that contains TEXT (case-insensitive), for messages the user
+asks to keep out of the log. The header says how many were left out.
 
 The session files live under ~/.claude/projects/<project>/. Only the user's and Claude's own words are
 kept, plus one line per tool call; the Windows user name in file paths is replaced with <user>.
 """
 import json, re, sys
 
-out_path, files = sys.argv[1], sys.argv[2:]
+args = sys.argv[1:]
+exclude = [args[i + 1].lower() for i, a in enumerate(args) if a == "--exclude"]
+args = [a for i, a in enumerate(args) if a != "--exclude" and (i == 0 or args[i - 1] != "--exclude")]
+out_path, files = args[0], args[1:]
+left_out = 0
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 seen, rows = set(), []
 
@@ -17,7 +24,10 @@ def clean(text):
 
 
 def redact(text):
-    return re.sub(r"(Users[\\/]+)[^\\/\s<]+", r"\g<1><user>", text)
+    text = re.sub(r"(Users[\\/]+)[^\\/\s<]+", r"\g<1><user>", text)
+    for x in exclude:                     # also scrub the phrase from anything that mentions the left-out message
+        text = re.sub(re.escape(x) + r"( text| message| prompt)?", "the left-out", text, flags=re.I)
+    return text
 
 
 for f in files:
@@ -51,6 +61,9 @@ for f in files:
                 what = i.get("description") or i.get("file_path") or i.get("pattern") or i.get("name") or i.get("recap") or ""
                 tools.append(f"{b.get('name', '').split('__')[-1]}" + (f": {str(what)[:140]}" if what else ""))
         role = o["type"]
+        if role == "user" and exclude and any(x in t.lower() for t in texts for x in exclude):
+            left_out += 1
+            continue
         if texts:
             rows.append((ts, role, "\n\n".join(texts)))
         if tools and role == "assistant":
@@ -66,10 +79,13 @@ for ts, role, text in rows:                      # fold consecutive tool-call no
 
 n_user = sum(r[1] == "user" for r in merged)
 n_ai = sum(r[1] == "assistant" for r in merged)
+omitted = ("\n\n" + f"{left_out} user message{'s' if left_out != 1 else ''} pasted in by mistake and unrelated"
+           " to this project " + ("was" if left_out == 1 else "were") + " left out at the user's request.") if left_out else ""
 head = f"""# AI chat log
 
-Every message between the user and Claude Code (model: Claude Fable 5.2) in the session that built this
-service, in order, exported from the session's saved transcript. Times are UTC.
+Every message between the user and Claude Code in the sessions that built this service, in order,
+exported from the saved transcripts. Times are UTC. The model was Claude Fable 5.2 until the user switched
+it to Claude Opus 5.5 on 2026-11-17.
 
 - **User** blocks are the user's messages word for word. The first one is the task brief, which was handed
   to this session by the user's planning session rather than typed here.
@@ -78,7 +94,7 @@ service, in order, exported from the session's saved transcript. Times are UTC.
   and the harness's automatic reminders are left out.
 
 {n_user} user messages, {n_ai} Claude replies, {merged[0][0]} to {merged[-1][0]}. This is a snapshot: anything
-said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh.
+said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh.{omitted}
 
 ---
 """

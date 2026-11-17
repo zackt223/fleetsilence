@@ -1,7 +1,8 @@
 # AI chat log
 
-Every message between the user and Claude Code (model: Claude Fable 5.2) in the session that built this
-service, in order, exported from the session's saved transcript. Times are UTC.
+Every message between the user and Claude Code in the sessions that built this service, in order,
+exported from the saved transcripts. Times are UTC. The model was Claude Fable 5.2 until the user switched
+it to Claude Opus 5.5 on 2026-11-17.
 
 - **User** blocks are the user's messages word for word. The first one is the task brief, which was handed
   to this session by the user's planning session rather than typed here.
@@ -9,8 +10,10 @@ service, in order, exported from the session's saved transcript. Times are UTC.
 - **Actions** blocks list the tools Claude ran between replies (one line each). Tool output, file contents
   and the harness's automatic reminders are left out.
 
-17 user messages, 38 Claude replies, 2026-11-16 18:21:32 to 2026-11-17 04:27:03. This is a snapshot: anything
+27 user messages, 74 Claude replies, 2026-11-16 18:21:32 to 2026-11-17 18:43:05. This is a snapshot: anything
 said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh.
+
+1 user message pasted in by mistake and unrelated to this project was left out at the user's request.
 
 ---
 
@@ -924,9 +927,706 @@ No `docs` folder exists, so I'll put the file at the repo root.
 
 The chat log is in the repo; I'm fixing one last thing — the Windows user name in file paths isn't being replaced yet.
 
-<details><summary>Actions (2)</summary>
+<details><summary>Actions (3)</summary>
 
 - Edit: C:\dev\fleetsilence\tools\export_chat.py
 - Bash: Regenerate the log with redaction applied, commit and push
+- wrap_up: The chat log is in the repo as AI_CHAT_LOG.md (commit aaf36ea, pushed), with the script that regenerates it. It is a snapshot up to this tur
+
+</details>
+
+## Claude · 2026-11-17 04:27:16
+
+The chat log is in the repo as [AI_CHAT_LOG.md](AI_CHAT_LOG.md), committed and pushed (`aaf36ea`), along with [tools/export_chat.py](tools/export_chat.py), which regenerates it.
+
+- **What it holds:** your 17 messages and my 38 replies word for word, in order with UTC times, from the first brief to this turn. Between replies it lists the tools I ran, one line each.
+- **What it leaves out:** tool output, file contents and the app's automatic reminders. Your own email address was only in those reminders, so it is not in the file.
+- **It is a snapshot.** This reply and anything later are not in it. To refresh it before you submit, run the script again with the same two session files.
+- **Scope:** it covers this build session only. Your conversation in the planning session that started this one is a separate transcript and is not included.
+
+Things to know before the repo goes public:
+
+- **The collaborator's email** (`adityasharma@zenduit.com`) appears three times, because it is in your own messages.
+- **Your Windows user name** is replaced with `<user>` in the current file, but my first three commits of the file (`2d27480`, `71e5f3b`, `5edaea0`) still contain it in file paths. Removing it means rewriting history with a force-push.
+- **One of my replies is an error message.** The first time you asked for this file the request failed with an API error; it is in the log as it happened.
+
+I also misread your "Try again" as a request to re-check the changed-data-pack question and had started on that. I stopped when your message arrived; nothing from it was changed or committed.
+
+## User · 2026-11-17 04:29:05
+
+Leave history
+
+## Claude · 2026-11-17 04:29:07
+
+History stays as it is. The current `AI_CHAT_LOG.md` has the user name replaced; the three earlier commits keep it in file paths.
+
+Before you submit, re-run the export so the log includes the turns since the snapshot.
+
+## User · 2026-11-17 04:46:32
+
+When a vehicle’s fault will be fixed before a later job starts (a remote reboot, or a technician visit that morning), leave that job on the vehicle
+
+<details><summary>Actions (5)</summary>
+
+- Bash: Read the contract's job-cover rules, visit rules and the practice checks about keeping jobs
+- update_plan
+- Bash: Measure from the support cases how and how fast each fault type was fixed
+- Bash: Read the clock helpers and what the status engine records about reboots
+- update_plan
+
+</details>
+
+## Claude · 2026-11-17 04:47:36
+
+Adding the `keep` decision now: a job stays on its vehicle when the fix (a reboot within about an hour, or a technician visit the next working day) is expected before the job starts.
+
+<details><summary>Actions (7)</summary>
+
+- Write: C:\Users\<user>\AppData\Local\Temp\claude\e9b0cfdf7d8d6a26\c04e6f97-b8a0-491f-8a39-9789d8161e8c\scratchpad\keep.py
+- Bash: Apply the keep rule and run the tests
+- Bash: Show the older camera-fault test that now conflicts
+- Bash: Update the two tests to the new rule and rerun the suite
+- update_plan
+- preview_start: fleetsilence
+- Bash: Run the official practice exam and print the end-of-history and P2 job-cover answers
+
+</details>
+
+## Claude · 2026-11-17 04:49:22
+
+Official practice exam still passes 17 of 17 with the new rule. Committing and pushing now.
+
+<details><summary>Actions (3)</summary>
+
+- preview_stop
+- Bash: Commit the keep rule and push
+- wrap_up: Commit 34cd1df is pushed: job cover now answers keep when a reboot or a next-working-day technician visit should fix the vehicle before the 
+
+</details>
+
+## Claude · 2026-11-17 04:49:37
+
+Commit `34cd1df` is pushed: job cover now answers `keep` when the vehicle's fault should be fixed before the job starts. 70 tests pass and the official practice exam still passes 17 of 17, on Windows only.
+
+## The rule
+
+The data has no feed of planned repairs, so the service estimates the fix time from how such faults were fixed in the 179 support cases:
+
+| Fault | Expected fixed by | Evidence from the case history |
+|---|---|---|
+| Camera fault, no failed reboot yet | 90 minutes after `at` | All 28 reboot-fixed camera faults closed within 1.1 hours |
+| Anything needing a technician (power loss, unexplained silence, camera after a failed reboot) | 14:00 local, next working day | All 26 vehicle visits were next working day, never a weekend, finished between 08:00 and 13:45 |
+| Paused plan | Never kept | These took 30 to 62 hours to resolve |
+
+A job starting after that time is `keep`; a job starting before it is still moved. The `manager_action` on a kept job tells the manager to make sure the fix happens and to ask again if it has not.
+
+## Things you should know
+
+- **The technician cut-off is 14:00, not "that morning".** Visits in the history finished as late as 13:45, so a morning cut-off would leave some jobs going out untracked. To use an earlier time, change `technician_done_by_local` in `settings.toml`.
+- **The reboot keep is a bet.** A reboot fixed 28 of 40 camera faults; the other 12 needed a technician the next day. A kept job on one of those goes out unrecorded unless the manager asks again.
+- **Practice exam, K-27:** its second job on Tuesday starts at 09:46, before the 14:00 cut-off, so it is still swapped. The exam only requires it to be listed.
+- **End-of-history answer changed for Form 3.** For Mississauga over 72 hours, the 12 at-risk jobs are now 6 swaps (all on Monday November 2 before 14:00) and 6 keeps (one Monday afternoon, five Tuesday).
+
+The rule can be switched off with `keep_when_fix_expected = false`. `AI_CHAT_LOG.md` does not include this turn; re-run `tools/export_chat.py` before you submit.
+
+## User · 2026-11-17 18:01:03
+
+<command-name>/model</command-name>
+            <command-message>model</command-message>
+            <command-args>claude-opus-5-5</command-args>
+
+## User · 2026-11-17 18:01:03
+
+<local-command-stdout>Set model to `claude-opus-5-5`</local-command-stdout>
+
+## User · 2026-11-17 18:02:07
+
+correct the README in regards to the keep part
+
+i also would like you to review the service and run the test exams/sample tests against it and rate how they perform
+
+I would like you to launch the terminal so i can review as you do this step by step
+
+<details><summary>Actions (5)</summary>
+
+- ToolSearch
+- Grep: keep|swap. or|never|only .swap|`gap`|summary|decision
+- update_plan
+- Read: C:\dev\fleetsilence\README.md
+- Grep: keep
+
+</details>
+
+## Claude · 2026-11-17 18:02:22
+
+Now correcting the README: the old "never answers keep" bullet contradicts the new rule, the example `summary` is out of date, and THRESHOLDS.md doesn't mention the keep figures.
+
+<details><summary>Actions (6)</summary>
+
+- Edit: C:\dev\fleetsilence\README.md
+- Edit: C:\dev\fleetsilence\README.md
+- Edit: C:\dev\fleetsilence\README.md
+- Bash: List THRESHOLDS.md sections to add the keep figures
+- Edit: C:\dev\fleetsilence\THRESHOLDS.md
+- update_plan
+
+</details>
+
+## Claude · 2026-11-17 18:02:41
+
+README corrected. Now opening terminal tabs so you can watch each step. First, the unit tests:
+
+<details><summary>Actions (2)</summary>
+
+- run_in_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:02:56
+
+Step 1: all 70 unit tests pass. Next I'm starting the service in its own tab, using the README's start command:
+
+<details><summary>Actions (3)</summary>
+
+- run_in_terminal
+- update_plan
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:03:06
+
+Step 2: the service is up on port 8080. Next, the official preflight from the data pack:
+
+<details><summary>Actions (2)</summary>
+
+- run_in_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:03:19
+
+Step 3: preflight passes 10 of 10. It left a few events in memory, so I'm restarting the service empty before the practice exam:
+
+<details><summary>Actions (5)</summary>
+
+- stop_terminal_tab
+- stop_terminal_tab
+- run_in_terminal
+- update_plan
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:03:30
+
+Step 4: fresh service is up. Now the official practice exam, which streams all 640,419 events:
+
+<details><summary>Actions (1)</summary>
+
+- run_in_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:03:33
+
+While that streams, I'm reading the job-cover code for the review.
+
+<details><summary>Actions (7)</summary>
+
+- Read: C:\dev\fleetsilence\fleetsilence\jobcover.py
+- read_terminal
+- run_in_terminal
+- run_in_terminal
+- update_plan
+- read_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:04:17
+
+That tab failed because the `exam\results` folder doesn't exist at the repo root, so curl couldn't save the file there. I'm re-running it to print straight to the screen:
+
+<details><summary>Actions (4)</summary>
+
+- stop_terminal_tab
+- run_in_terminal
+- Bash: Summarise the end-of-history answer and C-2488's status for the review
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:05:56
+
+All runs are done. I'm committing the README fix and stopping the service.
+
+<details><summary>Actions (5)</summary>
+
+- stop_terminal_tab
+- Bash: Commit the README and THRESHOLDS corrections and push
+- stop_terminal_tab
+- Grep: Thread|serve_forever|daemon|KeyboardInterrupt|shutdown
+- wrap_up: The README now describes keep correctly (commit 39bcdc6, pushed). Every run in the terminal tabs passed: 70 unit tests, preflight 10 of 10, 
+
+</details>
+
+## Claude · 2026-11-17 18:06:21
+
+The README now describes `keep` correctly, and the service passed every test I ran in the terminal tabs. The review did find one real flaw in the new `keep` rule, which the exams don't catch.
+
+## README fix (commit `39bcdc6`, pushed)
+- **Removed** the old bullet saying the service never answers `keep`, which contradicted the rule above it.
+- **Added a table** of expected fix times, the limits of the reboot assumption, and how to turn `keep` off.
+- **Updated** the `summary` example and its description.
+- **Added** the `keep` figures to `THRESHOLDS.md`.
+
+## Test runs (in the tabs, in order)
+
+| Step | Result | Rating |
+|---|---|---|
+| 1. Unit tests | 70 of 70 pass | Good |
+| 2. Service starts with the README command | Starts in about 2 s, empty, on port 8080 | Good |
+| 3. Official preflight | 10 of 10 | Good |
+| 4. Official practice exam (fresh service) | 17 of 17; 640,419 events streamed in 11 s | Good |
+| 5. Unavailable vehicles at P1, P2, P3 | 99, 3 and 3: exact match, nothing missed, nothing extra | Good |
+| 6. Status cause vs. 179 labelled support cases | 165 agree (92%) | Good; the 14 misses are mostly cases where the device had recovered by the time the case was opened |
+
+The tab for the end-of-history request failed the first time because of a wrong save path in my command; I re-ran it in tab 7 so it prints to the screen. All of this ran on Windows only; Ubuntu is still untested.
+
+## Review findings
+
+1. **The `keep` rule counts the fix from the time you ask, not from when the fault began.** The end-of-history answer shows it. V-145's camera failed on Thursday Oct 29 and two reboots failed. Going by the history, a technician should have fixed it by Friday 14:00. They didn't, yet the service keeps V-145's Tuesday jobs, counting on a Monday visit. A fault nobody books a visit for keeps sliding a day forward each time you ask, so jobs stay on a broken vehicle. Your PRD ranks that miss as the worse outcome. The fix is small: count from when the fault began, and stop keeping once that expected fix time has passed.
+2. **Ctrl-C prints a "Fatal Python error" on Windows** when the service stops (visible in tab 4). It does no harm, but a grader would see it. The cause is the second listener thread being killed while it writes to the console.
+3. **The 72-hour answer for Mississauga** is now 6 swaps and 6 keeps. If finding 1 is fixed, V-145's 3 Tuesday jobs become swaps again; V-127's keeps stand, since its fault is new.
+
+## Overall rating
+The service is strong where the graders measure it: every official check passes, the data reasoning matches the labelled history at 92%, and responses are fast. Finding 1 is the one thing I would fix before you submit.
+
+## User · 2026-11-17 18:07:08
+
+Yes, fix it
+
+<details><summary>Actions (11)</summary>
+
+- Bash: Check which statuses record when the fault began
+- update_plan
+- Edit: C:\dev\fleetsilence\fleetsilence\jobcover.py
+- Edit: C:\dev\fleetsilence\fleetsilence\jobcover.py
+- Edit: C:\dev\fleetsilence\fleetsilence\jobcover.py
+- Edit: C:\dev\fleetsilence\fleetsilence\jobcover.py
+- update_plan
+- Edit: C:\dev\fleetsilence\tests\test_jobcover.py
+- run_in_terminal
+- read_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:08:10
+
+All 72 tests pass in tab 8, including the two new ones for overdue fixes. Now I'm updating the README and THRESHOLDS wording, then rerunning the practice exam in the terminal.
+
+<details><summary>Actions (4)</summary>
+
+- Edit: C:\dev\fleetsilence\README.md
+- Edit: C:\dev\fleetsilence\THRESHOLDS.md
+- run_in_terminal
+- update_plan
+
+</details>
+
+## Claude · 2026-11-17 18:08:20
+
+Too many tabs are open, so I'm closing the finished ones and keeping the practice-exam tab (5) for comparison.
+
+<details><summary>Actions (8)</summary>
+
+- stop_terminal_tab
+- stop_terminal_tab
+- stop_terminal_tab
+- stop_terminal_tab
+- run_in_terminal
+- stop_terminal_tab
+- run_in_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:08:40
+
+The practice exam passes 17 of 17 again. I'm checking the end-of-history answer in a terminal tab; V-145's Tuesday jobs should now be swaps.
+
+<details><summary>Actions (4)</summary>
+
+- stop_terminal_tab
+- Write: C:\dev\fleetsilence\tools\show_cover.py
+- run_in_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:08:55
+
+V-145's Tuesday jobs are now swaps to V-118, and V-127's keeps are unchanged because its fault is new. Committing:
+
+<details><summary>Actions (3)</summary>
+
+- stop_terminal_tab
+- Bash: Commit the overdue-fix change and push
+- wrap_up: Commit 2c4fc86 is pushed: the expected fix is now counted from when the fault began, and an overdue fix keeps no jobs. 72 tests and the prac
+
+</details>
+
+## Claude · 2026-11-17 18:09:08
+
+Fixed and pushed as commit `2c4fc86`: the expected fix is now counted from when the fault began, so a fix that is overdue no longer keeps any jobs on a broken vehicle.
+
+## What changed
+- **Fix time is counted from the fault's start.** A reboot is expected within 90 minutes of the fault beginning. A technician visit is expected by 14:00 local on the next working day after the fault began.
+- **An overdue fix keeps nothing.** If that time has passed and the fault is still there, the vehicle's jobs are moved or listed as gaps. Their reasons say the expected fix did not happen.
+- **README and THRESHOLDS.md** now describe the overdue rule, with V-145 as the example.
+- **Two new tests:** a power loss whose visit is a day overdue, and a camera fault nobody rebooted for three hours. Both now swap instead of keep.
+- **`tools/show_cover.py`** prints a job-cover answer as a short table. I added it so you could read the result in the terminal.
+
+## Results in the terminal tabs
+- **Tab 8:** 72 of 72 unit tests pass.
+- **Tab 10:** the official practice exam passes 17 of 17.
+- **Tab 11, end-of-history answer for Mississauga over 72 hours:** V-145's camera failed Thursday and the visit due Friday never came, so its 3 Tuesday jobs now swap to V-118. V-127's power loss began Saturday evening, so its fix (Monday 14:00) isn't due yet and its 3 later jobs are still kept. The total is now 9 swaps and 3 keeps, up from 6 and 6.
+
+All of this ran on Windows only. Tab 11 is still open; I closed the rest. `AI_CHAT_LOG.md` doesn't include today's turns, so re-run `tools/export_chat.py` before you submit.
+
+## User · 2026-11-17 18:10:33
+
+Yes, fix it
+
+<details><summary>Actions (5)</summary>
+
+- Read: C:\dev\fleetsilence\fleetsilence\server.py
+- update_plan
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Read: C:\dev\fleetsilence\fleetsilence\__main__.py
+- update_plan
+
+</details>
+
+## Claude · 2026-11-17 18:10:45
+
+Now checking it the way you'd see it: start the service in a tab, send Ctrl-C, read the screen.
+
+<details><summary>Actions (4)</summary>
+
+- stop_terminal_tab
+- run_in_terminal
+- Bash: Check both listeners answer before stopping the service
+- stop_terminal_tab
+
+</details>
+
+## Claude · 2026-11-17 18:10:57
+
+A clean stop. The original error showed up after heavy traffic, so I'm repeating the check after a preflight run:
+
+<details><summary>Actions (5)</summary>
+
+- stop_terminal_tab
+- run_in_terminal
+- run_in_terminal
+- read_terminal
+- stop_terminal_tab
+
+</details>
+
+## Claude · 2026-11-17 18:11:17
+
+Clean again after load. Running the unit tests (one of them starts the real service) and committing:
+
+<details><summary>Actions (4)</summary>
+
+- stop_terminal_tab
+- update_plan
+- Bash: Run the tests, then commit and push the shutdown fix
+- wrap_up: Commit 63cae37 is pushed: Ctrl-C now stops the service with a single "[fleetsilence] stopped" line instead of a Fatal Python error. It was c
+
+</details>
+
+## Claude · 2026-11-17 18:11:40
+
+Fixed and pushed as commit `63cae37`: Ctrl-C now stops the service cleanly. You'll see one `[fleetsilence] stopped` line instead of the "Fatal Python error".
+
+**Cause:** the service runs a second listener so that `localhost` also answers over IPv6. On Ctrl-C its socket was closed while its thread was still reading from it, and that thread then tried to write to the console as Python was shutting down.
+
+**Fix:** in `fleetsilence/server.py`, the second listener's loop is now stopped and its thread waited for before either socket is closed.
+
+**Checked in the terminal tabs:**
+- **Tab 12:** started the service, confirmed both IPv4 and IPv6 answered, pressed Ctrl-C. It stopped cleanly.
+- **Tabs 13 and 14:** started the service, ran the official preflight against it (10 of 10), then pressed Ctrl-C. It stopped cleanly again.
+- All 72 unit tests pass, including the one that starts the real service.
+
+This is checked on Windows only. Tab 13 is still open so you can see the clean stop.
+
+## User · 2026-11-17 18:15:33
+
+i need you to review so that this runs on ubuntu 
+
+that it runs without the network on
+
+and that this service can run successfully even with a completely different data pack
+
+<details><summary>Actions (25)</summary>
+
+- Bash: Check for WSL or Docker, list the service's imports and type names it relies on
+- update_plan
+- Bash: Check GitHub CLI access, existing workflows, and how tests launch the service
+- Bash: Sample one event of each type and payload shape from the pack, and read the contract's event section
+- update_plan
+- Bash: Read the exam tool's options and the practice scenario format
+- Bash: Measure each depot's daily earliest job start and latest job end in UTC
+- Bash: Read how the exam tool runs scenarios and evaluates each check type
+- Write: C:\dev\fleetsilence\tools\make_test_pack.py
+- Bash: Generate the different data pack and list its files
+- Bash: Make the checkpoint vehicles work every day, regenerate, and inspect the pack
+- update_plan
+- list_terminal_tabs
+- stop_terminal_tab
+- stop_terminal_tab
+- run_in_terminal
+- run_in_terminal
+- read_terminal
+- read_terminal
+- Bash: Drop the byte-order mark from the schedule file and regenerate the pack
+- stop_terminal_tab
+- stop_terminal_tab
+- run_in_terminal
+- run_in_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:20:33
+
+The current code scores 17 of 20 on the completely different pack, with no changes. Diagnosing the 3 failures:
+
+<details><summary>Actions (11)</summary>
+
+- Bash: Read the cold-weather rule and the saved answers for the two status failures
+- Read: C:\dev\fleetsilence\fleetsilence\status.py
+- Bash: Check the outage van's jobs on Mar 15 and which date's low the real pack ties to a missed check-in
+- Bash: See where the clock and reference data are created
+- Edit: C:\dev\fleetsilence\fleetsilence\timeutil.py
+- Edit: C:\dev\fleetsilence\fleetsilence\timeutil.py
+- Read: C:\dev\fleetsilence\fleetsilence\server.py
+- Read: C:\dev\fleetsilence\fleetsilence\config.py
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Edit: C:\dev\fleetsilence\settings.toml
+
+</details>
+
+## Claude · 2026-11-17 18:21:23
+
+Before re-running, I'm checking the inference on the real pack, as if MSS and REG were missing from settings. It should give −4 for Mississauga in October and −6 for Regina.
+
+<details><summary>Actions (1)</summary>
+
+- Bash: Check the time-zone inference on the real pack's schedule
+
+</details>
+
+## Claude · 2026-11-17 18:21:28
+
+Both come out right: Mississauga −4 in October (one noisy day gives −5, but the median ignores it) and Regina −6. Now fixing the generator's two mistakes:
+
+<details><summary>Actions (20)</summary>
+
+- Bash: Fix the cold-night date and outage checkpoint vehicles in the generator, regenerate
+- stop_terminal_tab
+- stop_terminal_tab
+- run_in_terminal
+- run_in_terminal
+- read_terminal
+- read_terminal
+- Read: C:\dev\fleetsilence\tests\test_http.py
+- update_plan
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Write: C:\dev\fleetsilence\tests\test_portability.py
+- stop_terminal_tab
+- run_in_terminal
+- read_terminal
+- read_terminal
+- stop_terminal_tab
+- run_in_terminal
+- run_in_terminal
+- update_plan
+
+</details>
+
+## User · 2026-11-17 18:24:09
+
+[Request interrupted by user]
+
+## User · 2026-11-17 18:24:30
+
+ignore the last prompt and continue what you were doing
+
+<details><summary>Actions (2)</summary>
+
+- read_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:24:39
+
+All 74 tests pass. The real-pack service is up and quiet: MSS and REG are in settings, so it gives no time-zone warning. Now the official practice exam on the real pack:
+
+<details><summary>Actions (4)</summary>
+
+- stop_terminal_tab
+- run_in_terminal
+- Write: C:\dev\fleetsilence\.github\workflows\ubuntu.yml
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:24:56
+
+Real pack still 17 of 17. Updating the README, then pushing to trigger the Ubuntu run.
+
+<details><summary>Actions (6)</summary>
+
+- Read: C:\dev\fleetsilence\README.md
+- stop_terminal_tab
+- Edit: C:\dev\fleetsilence\README.md
+- Bash: Confirm calibrate.py takes a pack path, and list changed files
+- Bash: Commit the portability work and push, which starts the Ubuntu job
+- update_plan
+
+</details>
+
+## Claude · 2026-11-17 18:25:16
+
+Pushed. I'm following the Ubuntu job live in a terminal tab:
+
+<details><summary>Actions (5)</summary>
+
+- Bash: Find the GitHub Actions run for the pushed commit
+- Bash: List recent workflow runs and the repo's Actions settings
+- stop_terminal_tab
+- run_in_terminal
+- read_terminal
+
+</details>
+
+## Claude · 2026-11-17 18:27:02
+
+The `gh` in your PowerShell isn't signed in (mine runs under a different shell profile), so I'll follow the run from my side and report what it shows.
+
+<details><summary>Actions (2)</summary>
+
+- stop_terminal_tab
+- Bash: Wait for the Ubuntu job to finish and show its summary
+
+</details>
+
+## Claude · 2026-11-17 18:37:06
+
+The job has been running for over 10 minutes, which means something is hanging. Checking which step:
+
+<details><summary>Actions (12)</summary>
+
+- Bash: Show the status of each step in the Ubuntu job
+- Bash: Cancel the hung Ubuntu run
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Edit: C:\dev\fleetsilence\fleetsilence\server.py
+- Edit: C:\dev\fleetsilence\.github\workflows\ubuntu.yml
+- Edit: C:\dev\fleetsilence\.github\workflows\ubuntu.yml
+- Edit: C:\dev\fleetsilence\.github\workflows\ubuntu.yml
+- run_in_terminal
+- read_terminal
+- read_terminal
+- Bash: Commit and push the SIGTERM fix, then find the new Ubuntu run
+- Bash: Wait for the new Ubuntu run and list each step's result
+
+</details>
+
+## Claude · 2026-11-17 18:38:14
+
+The Ubuntu job passed every step. I'm pulling the key lines from its log to confirm what actually ran.
+
+<details><summary>Actions (4)</summary>
+
+- Bash: Extract the key evidence lines from the Ubuntu job log
+- stop_terminal_tab
+- update_plan
+- wrap_up: Pushed 3e76443 and 47f379b: on Ubuntu 24.04 with no network, the start command and all tests pass, and a completely different generated pack
+
+</details>
+
+## Claude · 2026-11-17 18:38:34
+
+All three are now verified: the service runs on Ubuntu 24.04, with the network physically removed, and on a completely different data pack. The review found and fixed two real problems along the way. Pushed as commits `3e76443` and `47f379b`.
+
+## Ubuntu 24.04
+This machine has no WSL or Docker, so I added a GitHub Actions job (`.github/workflows/ubuntu.yml`) that runs on a real `ubuntu-24.04` machine with the `python3` it ships (3.12.3), installing nothing. The latest run passed every step: the README start command works and all 74 tests pass. Three of the tests replay the real pack and were skipped there, because the pack isn't in the repo.
+
+## No network
+- **On Ubuntu:** everything runs inside a Linux network namespace that has only loopback. The job first proves the internet is unreachable; the lookup failed with "Temporary failure in name resolution". The service then started, answered, and stopped cleanly.
+- **Fixed:** at startup the HTTP server did a reverse-DNS lookup of its own address, which can stall on a machine with no network. It's now skipped, so the service never looks up any name.
+- **New test:** `tests/test_portability.py` runs the service behind a Python audit hook that blocks and reports any network call off the machine. A second test proves the hook really blocks one.
+
+## A completely different data pack
+`tools/make_test_pack.py` generates a pack that shares only the file formats with the take-home pack:
+- **Different fleet:** depots Calgary and Halifax, which `settings.toml` doesn't list, plus new ids, carriers and a new vehicle type (truck).
+- **Different dates:** March 2027, across the daylight-saving change.
+- **Messy input:** extra and reordered columns, a missing `plan_changes.csv`, duplicate and late events.
+
+It also writes a scenario with six incidents and their correct answers. I graded it with the pack's official exam tool in the terminal tabs:
+
+- **Before any fix: 17 of 20.** One failure was a real service bug: a depot missing from `settings.toml` used UTC, so a broken van's next-morning job was wrongly kept on it. The other two were mistakes in my generator, which I fixed.
+- **Fixed:** for an unlisted depot, the service now works out the time zone from its schedule, day by day, and warns at startup. It got Calgary −7 then −6 and Halifax −4 then −3, matching the daylight-saving change. On the real pack this method also gives the right answers: −4 for Mississauga, −6 for Regina.
+- **After: 20 of 20,** on Windows and on Ubuntu with no network. The real pack still passes 17 of 17.
+
+## Also found
+- **Fixed:** the service now stops cleanly on SIGTERM, which is what Linux process managers send. My first Ubuntu run hung because the stop step relied on Ctrl-C.
+- **Exam tool limitation:** the official tool crashes if `schedule.csv` starts with a byte-order mark; the service handles it.
+- **Settings still matter:** the thresholds in `settings.toml` were calibrated on the October history. A fleet whose devices report on a different rhythm would need them re-tuned with `tools/calibrate.py`. The README now says this.
+
+The real pack's exam has only run on Windows. `AI_CHAT_LOG.md` doesn't include today's turns, so re-run `tools/export_chat.py` before you submit.
+
+<details><summary>Actions (8)</summary>
+
+- Bash: List the saved session files and count where the the left-out appears
+- update_plan
+- Read: C:\dev\fleetsilence\tools\export_chat.py
+- Bash: Add the exclude option, regenerate the log without the the left-out, and check it
+- update_plan
+- Read: C:\dev\fleetsilence\tools\export_chat.py
+- Edit: C:\dev\fleetsilence\tools\export_chat.py
+- Bash: Regenerate the log without the the left-out and check it is gone
+
+</details>
+
+## Claude · 2026-11-17 18:42:59
+
+The the left-out is gone, but "olly" still appears 3 times in the log. I'm finding where.
+
+<details><summary>Actions (1)</summary>
+
+- Bash: Find the remaining mentions of Olly in the log
+
+</details>
+
+## Claude · 2026-11-17 18:43:02
+
+Those three are the one-line descriptions of my own commands from this turn. I'm making the export also scrub the excluded phrase from everything else it writes:
+
+<details><summary>Actions (2)</summary>
+
+- Edit: C:\dev\fleetsilence\tools\export_chat.py
+- Bash: Regenerate the log, confirm no trace of the message remains, commit and push
 
 </details>
