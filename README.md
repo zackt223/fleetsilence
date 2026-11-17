@@ -122,6 +122,12 @@ a one-word setting in `settings.toml` under `[status]`: whether a parked tracker
   (`jobcover.reshuffle_depth`).
 - Both vehicles are judged on what is known at `at`; nobody can know their state at the job's start. A job
   more than `jobcover.recheck_lead_h` (12) hours ahead says so in `manager_action`.
+- `keep`: the job stays on its vehicle because the fault should be fixed before it starts. A camera fault
+  with no failed reboot yet is expected back within 90 minutes (a remote reboot fixed 28 of 40 camera
+  faults in the case history, each within about an hour). Anything that needs a technician is expected
+  fixed by 14:00 local on the next working day (all 26 vehicle visits in the history were next working
+  day and finished by 13:45). Jobs before that time are still moved. A paused plan is never kept. Switch
+  it off with `jobcover.keep_when_fix_expected = false`.
 - `gap`: no vehicle qualifies. The reason counts why: how many are busy, unhealthy, on a dead carrier, or
   have no camera.
 - The contract also allows `keep`. This service never answers it: a job is either moved or reported as

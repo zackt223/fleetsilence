@@ -7,7 +7,10 @@ or say plainly that none can and why.
 Rules built in here:
 * Missing a real problem is worse than a false alarm, so a confirmed fault is
   flagged for every job in the window, however far ahead.
-* A job is either moved (`swap`) or reported as having no replacement (`gap`).
+* A job is moved (`swap`), reported as having no replacement (`gap`), or left
+  where it is (`keep`) when the fault is expected to be fixed before it starts:
+  a remote reboot within about an hour, or a technician visit the next working
+  day. How fast each fix happens is taken from the case history (settings).
 * A wrong swap costs the crew time, so a swap is only offered to a vehicle of
   the same type and depot that is free for the job's whole slot and is itself
   visibly healthy - anything silent, unexplained or inside a carrier outage is
@@ -20,6 +23,7 @@ Rules built in here:
   (the contract's `jobs` list is only for jobs starting in the window).
 """
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from .status import ACTION
 from .timeutil import duration, iso
@@ -87,21 +91,26 @@ class JobCover:
         memo = {}
         watch = defaultdict(list)
         troubled = []                     # (job, asset row, health) for every job that can't be seen or recorded
+        kept = {}                         # job_id -> (fixed by, how) for jobs the fix will reach first
         for job in jobs:
             asset = self.ref.assets.get(job.asset_id)
             if not asset:
                 continue
             h = self.health(snap, job.asset_id, memo)
             if h.problem:
+                fix = self._fixed_by(depot, at, h)
+                if fix and fix[0] <= job.start:
+                    kept[job.job_id] = fix
                 troubled.append((job, asset, h))
             elif h.soft:
                 watch[job.asset_id].append(job)
 
-        options = {job.job_id: self._candidates(snap, job, asset, h, memo) for job, asset, h in troubled}
-        placed, load = self._allocate([job for job, _, _ in troubled], options)
+        moving = [(job, asset, h) for job, asset, h in troubled if job.job_id not in kept]
+        options = {job.job_id: self._candidates(snap, job, asset, h, memo) for job, asset, h in moving}
+        placed, load = self._allocate([job for job, _, _ in moving], options)
 
         items = []
-        counts = {"swap": 0, "gap": 0}
+        counts = {"swap": 0, "gap": 0, "keep": 0}
         lead = self.cfg.jobcover.get("recheck_lead_h", 12) * 3600
         for job, asset, h in troubled:
             issues = [i for i in (h.location_issue, h.video_issue) if i]
@@ -112,9 +121,16 @@ class JobCover:
             slot = f"{self.clock.fmt(depot, job.start, at)}-{self.clock.fmt(depot, job.end, job.start)}"
             item = {"job_id": job.job_id, "asset_id": job.asset_id, "problem": h.problem, "decision": None,
                     "swap_to": None, "manager_action": "", "reasons": reasons, "evidence": evidence}
-            opts, tally = options[job.job_id]
+            opts, tally = options.get(job.job_id, ({}, {}))
             target = placed.get(job.job_id)
-            if target:
+            if job.job_id in kept:
+                when, how = kept[job.job_id]
+                item["decision"] = "keep"
+                item["reasons"].append(f"{how} That is before this job starts ({slot}), so it stays on {job.asset_id}.")
+                item["manager_action"] = (
+                    f"Leave {job.job_id} ({slot}) on {job.asset_id}, and make sure the fix happens: it should be done by"
+                    f" {self.clock.fmt(depot, when, at)}. If it is not, ask again and the job will be moved.")
+            elif target:
                 t = self.ref.assets[target]
                 item["decision"], item["swap_to"] = "swap", target
                 cam = " with a working camera" if snap.asset_cameras(target) else ""
@@ -153,6 +169,41 @@ class JobCover:
             "summary": {"jobs_in_window": len(jobs), "at_risk": len(items), **counts,
                         "under_way_at_risk": sum(len(n["job_ids"]) for n in under_way)},
         }
+
+    def _fixed_by(self, depot, at, h):
+        """When the vehicle's fault should be fixed, going by how such faults were fixed in the case history.
+
+        Returns (time, sentence) or None when no fix can be counted on. With two faults, the later fix counts.
+        """
+        cfg = self.cfg.jobcover
+        if not cfg.get("keep_when_fix_expected", True):
+            return None
+        fixes = []
+        for i in (h.location_issue, h.video_issue):
+            if i is None:
+                continue
+            if i.cause == "plan_paused":
+                return None            # an account matter: in the history these took one to three days
+            if i.cause == "camera_fault" and not i.detail.get("failed_reboots"):
+                when = at + cfg.get("remote_reboot_fix_min", 90) * 60
+                fixes.append((when, f"A remote reboot usually clears this camera fault within about an hour, so"
+                                    f" {i.serial} should be recording again by {self.clock.fmt(depot, when, at)}."))
+                continue
+            when = self._technician_done(depot, at)
+            fixes.append((when, f"{i.serial} needs a technician. Visits happen the next working day and have always"
+                                f" finished by {cfg.get('technician_done_by_local', '14:00')}, so it should be fixed by"
+                                f" {self.clock.fmt(depot, when, at)}."))
+        return max(fixes) if fixes else None
+
+    def _technician_done(self, depot, at):
+        """The time on the next working day by which a technician visit has always been finished."""
+        cfg = self.cfg.jobcover
+        hh, mm = (int(x) for x in str(cfg.get("technician_done_by_local", "14:00")).split(":"))
+        day = self.clock.local(depot, at).date() + timedelta(days=1)
+        while day.weekday() >= 5 and not cfg.get("technician_works_weekends", False):
+            day += timedelta(days=1)
+        naive = datetime(day.year, day.month, day.day, hh, mm, tzinfo=timezone.utc).timestamp()
+        return int(naive - self.clock.offset_hours(depot, naive) * 3600)
 
     def _candidates(self, snap, job, asset, h, memo):
         """Vehicles that could take the job if nothing else were being moved.

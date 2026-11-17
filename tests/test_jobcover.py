@@ -25,7 +25,7 @@ class SwapTest(unittest.TestCase):
         body = cover(app, AT)
         self.assertEqual({k: body[k] for k in ("depot", "at", "hours")}, {"depot": "MSS", "at": iso(AT), "hours": 24})
         self.assertEqual(set(body), {"depot", "at", "hours", "jobs", "notices", "summary"})
-        self.assertEqual(body["summary"], {"jobs_in_window": 1, "at_risk": 1, "swap": 1, "gap": 0, "under_way_at_risk": 0})
+        self.assertEqual(body["summary"], {"jobs_in_window": 1, "at_risk": 1, "swap": 1, "gap": 0, "keep": 0, "under_way_at_risk": 0})
         self.assertEqual(body["notices"], [])
         self.assertEqual(set(body["jobs"][0]), {"job_id", "asset_id", "problem", "decision", "swap_to",
                                                 "manager_action", "reasons", "evidence"})
@@ -129,6 +129,56 @@ class TimingTest(unittest.TestCase):
         self.assertIn("ask again nearer the time", got["J-later"])
 
 
+class KeepTest(unittest.TestCase):
+    """AT is Tuesday 08:00 in Mississauga. A technician fix is counted on by Wednesday 14:00 local (18:00 UTC)."""
+    WED_14 = T0 + 30 * HOUR
+
+    def test_a_job_after_the_technician_visit_stays_on_the_vehicle_and_earlier_ones_move(self):
+        app = make_app(jobs=[("J-today", "K-1", *JOB),
+                             ("J-wed-am", "K-1", self.WED_14 - 4 * HOUR, self.WED_14 - 2 * HOUR),
+                             ("J-wed-pm", "K-1", self.WED_14 + 30 * MIN, self.WED_14 + 2 * HOUR)])
+        healthy_fleet(app, AT, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", AT)})
+        body = cover(app, AT, hours=48)
+        got = {j["job_id"]: j for j in body["jobs"]}
+        self.assertEqual({k: (v["decision"], v["swap_to"]) for k, v in got.items()},
+                         {"J-today": ("swap", "K-2"), "J-wed-am": ("swap", "K-2"), "J-wed-pm": ("keep", None)})
+        self.assertIn("Leave J-wed-pm", got["J-wed-pm"]["manager_action"])
+        self.assertIn("technician", " ".join(got["J-wed-pm"]["reasons"]))
+        self.assertEqual(body["summary"]["keep"], 1)
+
+    def test_a_friday_fault_is_not_counted_as_fixed_until_monday(self):
+        fri = T0 + 3 * 86400 + 8 * HOUR                    # Friday 16:00
+        mon_14 = fri + 3 * 86400 - 2 * HOUR
+        app = make_app(jobs=[("J-sat", "K-1", fri + 20 * HOUR, fri + 22 * HOUR),
+                             ("J-mon", "K-1", mon_14 + 30 * MIN, mon_14 + 90 * MIN)])
+        healthy_fleet(app, fri, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", fri)})
+        got = {j["job_id"]: j["decision"] for j in cover(app, fri, hours=72)["jobs"]}
+        self.assertEqual(got, {"J-sat": "swap", "J-mon": "keep"})
+
+    def test_camera_fault_keeps_a_later_job_while_a_reboot_can_still_fix_it(self):
+        app = make_app(jobs=[("J-soon", "V-1", AT + 30 * MIN, AT + HOUR), ("J-later", "V-1", AT + 3 * HOUR, AT + 4 * HOUR)])
+        healthy_fleet(app, AT, skip={"C-1"})
+        fault = ev("C-1", "camera_status", AT - 20 * MIN, {"status": "storage_error", "code": "SD_WRITE_FAIL"})
+        app.ingest({"events": [fault]})
+        got = {j["job_id"]: j for j in cover(app, AT)["jobs"]}
+        self.assertEqual((got["J-soon"]["decision"], got["J-later"]["decision"]), ("swap", "keep"))
+        self.assertIn("reboot", " ".join(got["J-later"]["reasons"]))
+        # Once a reboot has failed it needs a technician, so the same job is moved after all.
+        app.ingest({"events": [ev("C-1", "command", AT - 18 * MIN, {"command": "reboot", "issued_by": "support"})]})
+        got = {j["job_id"]: j["decision"] for j in cover(app, AT)["jobs"]}
+        self.assertEqual(got["J-later"], "swap")
+
+    def test_keep_can_be_switched_off(self):
+        app = make_app(jobs=[("J-wed-pm", "K-1", self.WED_14 + 30 * MIN, self.WED_14 + 2 * HOUR)])
+        app.cfg["jobcover"] = dict(app.cfg["jobcover"], keep_when_fix_expected=False)
+        healthy_fleet(app, AT, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", AT)})
+        (job,) = cover(app, AT, hours=48)["jobs"]
+        self.assertEqual(job["decision"], "swap")
+
+
 class DeadZoneTest(unittest.TestCase):
     def test_a_vehicle_in_a_dead_zone_is_never_the_replacement_whatever_its_status_is_called(self):
         for word in ("unknown", "quiet_expected"):
@@ -185,14 +235,14 @@ class VideoTest(unittest.TestCase):
         (job,) = cover(app, AT)["jobs"]
         self.assertIn(job["swap_to"], {"V-2", "V-3", "V-4", "V-7", "V-8", "V-9", "V-10"})
 
-    def test_camera_fault_is_swapped_however_far_ahead_the_job_is(self):
-        app = make_app(jobs=[("J-1", "V-1", AT + 6 * HOUR, AT + 7 * HOUR)])
+    def test_camera_fault_is_swapped_when_the_job_starts_before_a_reboot_could_fix_it(self):
+        app = make_app(jobs=[("J-1", "V-1", AT + HOUR, AT + 2 * HOUR)])
         healthy_fleet(app, AT, skip={"C-1"})
         self.camera_fault(app)
         (job,) = cover(app, AT)["jobs"]
         self.assertEqual((job["problem"], job["decision"]), ("no_video", "swap"))
 
-    def test_the_service_never_answers_keep(self):
+    def test_jobs_that_start_before_the_fix_are_never_kept(self):
         app = make_app(jobs=[(f"J-{n}", f"V-{n}", AT + n * HOUR, AT + (n + 1) * HOUR) for n in range(1, 13)])
         healthy_fleet(app, AT, skip={"C-1", "T-5"})
         self.camera_fault(app)

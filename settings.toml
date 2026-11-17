@@ -69,6 +69,15 @@ require_working_camera_for_camera_vans = true
 # (tracked but not recorded) rather than leave a gap. Never used for a recording-only problem.
 camera_less_fallback_when_untracked = true
 prefer_same_use = true
+# Leave a job on its vehicle (decision "keep") when the fault should be fixed before the job starts.
+keep_when_fix_expected = true
+# CALIBRATED: all 28 camera faults that a remote reboot fixed were closed within 1.1 h of the case opening.
+# Used only while no reboot has failed yet; after a failed reboot the camera is treated as needing a technician.
+remote_reboot_fix_min = 90
+# CALIBRATED: all 26 technician visits to vehicles (14 power loss, 12 camera) happened the next working day,
+# never the same day and never at a weekend, and finished between 08:00 and 13:45 local.
+technician_done_by_local = "14:00"
+technician_works_weekends = false
 # A job starting further ahead than this gets a line saying the answer is based on what is known now.
 recheck_lead_h = 12
 # How many earlier swaps may be re-arranged to free a vehicle for a job that would otherwise have none.
