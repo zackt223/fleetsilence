@@ -92,6 +92,7 @@ class JobCover:
         watch = defaultdict(list)
         troubled = []                     # (job, asset row, health) for every job that can't be seen or recorded
         kept = {}                         # job_id -> (fixed by, how) for jobs the fix will reach first
+        overdue = {}                      # job_id -> why the expected fix can't be counted on any more
         for job in jobs:
             asset = self.ref.assets.get(job.asset_id)
             if not asset:
@@ -99,7 +100,9 @@ class JobCover:
             h = self.health(snap, job.asset_id, memo)
             if h.problem:
                 fix = self._fixed_by(depot, at, h)
-                if fix and fix[0] <= job.start:
+                if fix and fix[0] is None:
+                    overdue[job.job_id] = fix[1]
+                elif fix and fix[0] <= job.start:
                     kept[job.job_id] = fix
                 troubled.append((job, asset, h))
             elif h.soft:
@@ -123,6 +126,8 @@ class JobCover:
                     "swap_to": None, "manager_action": "", "reasons": reasons, "evidence": evidence}
             opts, tally = options.get(job.job_id, ({}, {}))
             target = placed.get(job.job_id)
+            if job.job_id in overdue:
+                item["reasons"].append(overdue[job.job_id])
             if job.job_id in kept:
                 when, how = kept[job.job_id]
                 item["decision"] = "keep"
@@ -173,7 +178,11 @@ class JobCover:
     def _fixed_by(self, depot, at, h):
         """When the vehicle's fault should be fixed, going by how such faults were fixed in the case history.
 
-        Returns (time, sentence) or None when no fix can be counted on. With two faults, the later fix counts.
+        The expected fix is counted from when the fault began, not from `at`. A fix that should already
+        have happened and hasn't is overdue: nobody can count on it, so nothing is kept.
+
+        Returns (time, sentence) when a fix can be counted on, (None, sentence) when the fix is overdue,
+        or None when keep is off or the fault has no fix to wait for. With two faults, the later fix counts.
         """
         cfg = self.cfg.jobcover
         if not cfg.get("keep_when_fix_expected", True):
@@ -184,12 +193,21 @@ class JobCover:
                 continue
             if i.cause == "plan_paused":
                 return None            # an account matter: in the history these took one to three days
+            began = i.detail.get("since") or i.last_heard or at
             if i.cause == "camera_fault" and not i.detail.get("failed_reboots"):
-                when = at + cfg.get("remote_reboot_fix_min", 90) * 60
+                when = began + cfg.get("remote_reboot_fix_min", 90) * 60
+                if when < at:
+                    return None, (f"A remote reboot usually clears a camera fault within about an hour, but this one"
+                                  f" began at {self.clock.fmt(depot, began, at)} and is still not fixed, so the job is"
+                                  " not left waiting for it.")
                 fixes.append((when, f"A remote reboot usually clears this camera fault within about an hour, so"
                                     f" {i.serial} should be recording again by {self.clock.fmt(depot, when, at)}."))
                 continue
-            when = self._technician_done(depot, at)
+            when = self._technician_done(depot, began)
+            if when < at:
+                return None, (f"A technician visit is normally done by {self.clock.fmt(depot, when, at)} for a fault"
+                              f" that began at {self.clock.fmt(depot, began, at)}; it has not happened, so the job is"
+                              " not left waiting for it.")
             fixes.append((when, f"{i.serial} needs a technician. Visits happen the next working day and have always"
                                 f" finished by {cfg.get('technician_done_by_local', '14:00')}, so it should be fixed by"
                                 f" {self.clock.fmt(depot, when, at)}."))

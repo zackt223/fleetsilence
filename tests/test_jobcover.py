@@ -170,6 +170,24 @@ class KeepTest(unittest.TestCase):
         got = {j["job_id"]: j["decision"] for j in cover(app, AT)["jobs"]}
         self.assertEqual(got["J-later"], "swap")
 
+    def test_the_fix_is_counted_from_when_the_fault_began_and_an_overdue_one_keeps_nothing(self):
+        # Power lost Monday 07:00: a visit is normally done by Tuesday 14:00. Asked on Wednesday, it is overdue.
+        wed = AT + 86400
+        app = make_app(jobs=[("J-thu", "K-1", wed + 30 * HOUR, wed + 32 * HOUR)])
+        healthy_fleet(app, wed, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", AT - 86400)})
+        (job,) = cover(app, wed, hours=48)["jobs"]
+        self.assertEqual((job["problem"], job["decision"], job["swap_to"]), ("no_location", "swap", "K-2"))
+        self.assertIn("it has not happened", " ".join(job["reasons"]))
+
+    def test_a_camera_fault_nobody_has_rebooted_for_hours_keeps_nothing(self):
+        app = make_app(jobs=[("J-later", "V-1", AT + 5 * HOUR, AT + 6 * HOUR)])
+        healthy_fleet(app, AT, skip={"C-1"})
+        app.ingest({"events": [ev("C-1", "camera_status", AT - 3 * HOUR, {"status": "storage_error"})]})
+        (job,) = cover(app, AT)["jobs"]
+        self.assertEqual(job["decision"], "swap")
+        self.assertIn("still not fixed", " ".join(job["reasons"]))
+
     def test_keep_can_be_switched_off(self):
         app = make_app(jobs=[("J-wed-pm", "K-1", self.WED_14 + 30 * MIN, self.WED_14 + 2 * HOUR)])
         app.cfg["jobcover"] = dict(app.cfg["jobcover"], keep_when_fix_expected=False)

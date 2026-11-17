@@ -77,6 +77,7 @@ faulted camera regardless.
 | `jobcover.remote_reboot_fix_min` | 90 | Calibrated | 40 `camera_fault` cases: 28 fixed by a remote reboot, all closed within 1.1 h of opening (median 0.5 h); 12 needed a technician after the reboot failed twice. Used only while no reboot has failed yet. |
 | `jobcover.technician_done_by_local` | 14:00 | Calibrated | 26 technician visits to vehicles (14 `power_loss`, 12 `camera_fault`): every one on the next working day after the case opened, finished between 08:00 and 13:45 local. |
 | `jobcover.technician_works_weekends` | false | Calibrated | No vehicle visit in the history happened on a Saturday or Sunday; Friday cases were all closed on Monday. |
+| (overdue fix) | nothing kept | Both times are counted from when the fault began. If that time has passed and the fault is still there, the history's pattern did not hold for this vehicle (no reboot sent, or no visit booked), so no job waits for it. Example: V-145's camera failed Thu Oct 29; a visit was due by Fri Oct 30 14:00 and never came, so on Oct 31 none of its jobs are kept. |
 | (plan paused) | never kept | Calibrated | 11 `plan_paused` cases took 30–62 h to resolve, by an account action nobody can schedule. |
 
 ## Ingest

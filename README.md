@@ -132,10 +132,15 @@ a one-word setting in `settings.toml` under `[status]`: whether a parked tracker
   | Anything that needs a technician: power loss, unexplained silence, a camera after a failed reboot | 14:00 local on the next working day (`technician_done_by_local`, `technician_works_weekends`) | All 26 vehicle visits were the next working day, never at a weekend, and finished by 13:45 |
   | Paused data plan | never kept | These took 30 to 62 h to resolve |
 
-  A job that starts before the expected fix is still moved (or is a `gap`); only jobs after it are kept.
-  With two faults on one vehicle, the later fix counts. The kept job's `manager_action` says when the fix
-  is due and to ask again if it has not happened; the next answer will then move the job, because a
-  failed reboot or a missed visit pushes the expected fix later.
+  The expected fix is counted from when the fault **began**, not from when you ask. A job that starts
+  before the expected fix is still moved (or is a `gap`); only jobs after it are kept. With two faults on
+  one vehicle, the later fix counts. The kept job's `manager_action` says when the fix is due and to ask
+  again if it has not happened.
+
+  Once that time has passed with the fault still there (no reboot tried within 90 minutes, or no visit by
+  14:00 the next working day), the fix is overdue. Nothing on that vehicle is kept any more: its jobs are
+  moved or listed as gaps, and the reasons say the expected fix did not happen. So a fault nobody acts on
+  can't keep jobs on a broken vehicle day after day.
 
   The reboot keep is a bet: 12 of the 40 camera faults in the history were not fixed by a reboot and
   needed a technician the next day. Turn `keep` off with `jobcover.keep_when_fix_expected = false`, and
