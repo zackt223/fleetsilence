@@ -906,12 +906,15 @@ in the repo, i need you to create a file that captures all chat log history betw
 
 No `docs` folder exists, so I'll put the file at the repo root.
 
-<details><summary>Actions (5)</summary>
+<details><summary>Actions (8)</summary>
 
 - Bash: Export the chat to the repo root and scan it for private details
 - Bash: Replace the Windows user name in paths and view the end of the log
 - Bash: Replace the Windows user name in paths and view the end of the log
 - Bash: Save the export script in tools, regenerate the log, commit and push
 - Bash: Fix the path redaction, regenerate the log, run tests, commit and push
+- Bash: Show the remaining user-name occurrences
+- Edit: C:\dev\fleetsilence\tools\export_chat.py
+- Bash: Regenerate the log with the fixed redaction, commit and push
 
 </details>
