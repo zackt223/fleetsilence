@@ -187,15 +187,23 @@ def serve(data_dir, host=None, port=None):
     print(f"[fleetsilence] {len(ref.assets)} assets, {len(ref.devices)} devices, {len(ref.jobs)} jobs loaded from {data_dir}",
           file=sys.stderr)
     print(f"[fleetsilence] listening on http://localhost:{port} (state is in memory and starts empty)", file=sys.stderr, flush=True)
-    for s in servers[1:]:
-        threading.Thread(target=s.serve_forever, daemon=True).start()
+    threads = [threading.Thread(target=s.serve_forever, name=f"listener-{i}") for i, s in enumerate(servers[1:], 1)]
+    for t in threads:
+        t.start()
     try:
         servers[0].serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        # Stop the other listeners' loops before closing their sockets, so no thread is still reading from a
+        # closed socket (or writing to the console) while Python shuts down.
+        for s in servers[1:]:
+            s.shutdown()
+        for t in threads:
+            t.join(timeout=5)
         for s in servers:
             s.server_close()
+        print("[fleetsilence] stopped", file=sys.stderr, flush=True)
 
 
 __all__ = ["App", "BadRequest", "NotFound", "serve", "iso"]
