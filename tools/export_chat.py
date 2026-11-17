@@ -26,7 +26,10 @@ def clean(text):
 def redact(text):
     text = re.sub(r"(Users[\\/]+)[^\\/\s<]+", r"\g<1><user>", text)
     for x in exclude:                     # also scrub the phrase from anything that mentions the left-out message
-        text = re.sub(re.escape(x) + r"( text| message| prompt)?", "the left-out", text, flags=re.I)
+        text = re.sub(r"(the )?" + re.escape(x) + r"( text| message| prompt)?", "the left-out message", text, flags=re.I)
+        for word in x.split():            # and any of its words on their own
+            if len(word) > 3:
+                text = re.sub(r"\b" + re.escape(word) + r"\b", "[left out]", text, flags=re.I)
     return text
 
 

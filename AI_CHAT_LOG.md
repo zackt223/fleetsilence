@@ -10,7 +10,7 @@ it to Claude Opus 5.5 on 2026-11-17.
 - **Actions** blocks list the tools Claude ran between replies (one line each). Tool output, file contents
   and the harness's automatic reminders are left out.
 
-27 user messages, 74 Claude replies, 2026-11-16 18:21:32 to 2026-11-17 18:43:05. This is a snapshot: anything
+27 user messages, 75 Claude replies, 2026-11-16 18:21:32 to 2026-11-17 18:43:17. This is a snapshot: anything
 said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh.
 
 1 user message pasted in by mistake and unrelated to this project was left out at the user's request.
@@ -1599,24 +1599,24 @@ The real pack's exam has only run on Windows. `AI_CHAT_LOG.md` doesn't include t
 
 <details><summary>Actions (8)</summary>
 
-- Bash: List the saved session files and count where the the left-out appears
+- Bash: List the saved session files and count where the left-out message appears
 - update_plan
 - Read: C:\dev\fleetsilence\tools\export_chat.py
-- Bash: Add the exclude option, regenerate the log without the the left-out, and check it
+- Bash: Add the exclude option, regenerate the log without the left-out message, and check it
 - update_plan
 - Read: C:\dev\fleetsilence\tools\export_chat.py
 - Edit: C:\dev\fleetsilence\tools\export_chat.py
-- Bash: Regenerate the log without the the left-out and check it is gone
+- Bash: Regenerate the log without the left-out message and check it is gone
 
 </details>
 
 ## Claude · 2026-11-17 18:42:59
 
-The the left-out is gone, but "olly" still appears 3 times in the log. I'm finding where.
+the left-out message is gone, but "[left out]" still appears 3 times in the log. I'm finding where.
 
 <details><summary>Actions (1)</summary>
 
-- Bash: Find the remaining mentions of Olly in the log
+- Bash: Find the remaining mentions of [left out] in the log
 
 </details>
 
@@ -1628,5 +1628,16 @@ Those three are the one-line descriptions of my own commands from this turn. I'm
 
 - Edit: C:\dev\fleetsilence\tools\export_chat.py
 - Bash: Regenerate the log, confirm no trace of the message remains, commit and push
+
+</details>
+
+## Claude · 2026-11-17 18:43:15
+
+Two problems remain: the word "[left out]" still appears twice, and the replacement reads "the the left-out". Fixing both and amending:
+
+<details><summary>Actions (2)</summary>
+
+- Edit: C:\dev\fleetsilence\tools\export_chat.py
+- Bash: Regenerate and confirm no trace of the left-out message remains
 
 </details>
