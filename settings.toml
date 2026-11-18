@@ -1,21 +1,34 @@
 # fleetsilence settings.
 #
 # Every time cut-off and threshold the service uses lives here; nothing is
-# hard-coded in the logic. "GIVEN" values come straight from the candidate
+# hard-coded in the logic. Each one carries its source and evidence below, so
+# it can be adjusted later. "GIVEN" values come straight from the candidate
 # brief. "CALIBRATED" values were measured on the Oct 4-31 history with
-# tools/calibrate.py; THRESHOLDS.md has the numbers behind each one.
+# tools/calibrate.py; THRESHOLDS.md has the full tables.
 
 [server]
 host = "127.0.0.1"
 port = 8080                      # GIVEN: the contract says localhost:8080
 
 [ingest]
-# A device clock is trusted only if it is not ahead of the platform clock by
-# more than this, and not behind it by more than max_trusted_lateness_h.
-# Otherwise the event is ordered by received_at instead.
-clock_future_tolerance_s = 600   # CALIBRATED: no event in the history is ahead of received_at at all
-max_trusted_lateness_h = 24      # CALIBRATED: the latest buffered event arrived 90 min late; 24 h leaves room for a day-long outage
-backfill_lateness_s = 120        # CALIBRATED: 90 % of events arrive within 5 s and 98.8 % within 2 min; the rest came from a device's buffer
+# Each threshold below: what it controls, the value, where the value came from, the evidence, and what changing
+# it does. GIVEN = stated in the candidate brief. CALIBRATED = measured on the Oct 4-31 history (640,419 events,
+# 179 support cases); `python3 -I tools/calibrate.py <data pack>` recomputes the evidence for a new history.
+
+# Counts as late: an event arriving more than this after its device time came out of the device's buffer.
+# CALIBRATED. Evidence: 98.8 % of events arrive within 2 min (90 % within 5 s).
+# Raise it if a fleet's normal upload delay is longer; lower it to treat more events as buffered.
+backfill_lateness_s = 120
+
+# Device clock ahead: a device time up to this far ahead of arrival is trusted; further ahead, the event is
+# ordered by arrival time instead. CALIBRATED. Evidence: no device clock in the history was ahead at all.
+# Lower it to distrust clocks sooner; raise it only if devices are known to run fast.
+clock_future_tolerance_s = 600
+
+# Device clock behind: a device time more than this behind arrival means a wrong clock, and the event is
+# ordered by arrival time. CALIBRATED. Evidence: the latest buffered event arrived 90 min late.
+# Raise it if devices can buffer for longer than a day (for example a multi-day outage).
+max_trusted_lateness_h = 24
 
 [status]
 # Two verdicts the brief and the practice exam leave open. Each is one word to change.
@@ -27,40 +40,106 @@ parked_state = "quiet_expected"
 coverage_gap_state = "unknown"
 
 [tracker]
-drive_quiet_min = 6              # CALIBRATED: positions come every 2.0 min (99.99th pct 2.05); 6 min = three missed in a row
-heartbeat_interval_min = 240     # GIVEN: "a heartbeat every 4 hours while it's off"
-heartbeat_late_min = 270         # GIVEN: "late after 4 hours 30 minutes with nothing"
-coverage_gap_max_min = 100       # CALIBRATED: 221 dead-zone silences lasted 21-91 min; beyond 100 min it is not a coverage gap
+# Heartbeat interval: a parked tracker sends a heartbeat this often. GIVEN: "a heartbeat every 4 hours while
+# it's off". Evidence: parked heartbeats in the history arrive exactly 240 min apart.
+heartbeat_interval_min = 240
+
+# Heartbeat late: a parked tracker silent this long with nothing to explain it needs action. GIVEN: "late after
+# 4 hours 30 minutes with nothing". Lower it to flag sooner (more false alarms); raise it to flag later.
+heartbeat_late_min = 270
+
+# Silent while driving: a driving tracker silent this long is checked further (dead zone, power, outage,
+# fault). CALIBRATED. Evidence: positions arrive every 2.0 min while driving (99.99th percentile 2.05 min);
+# 6 min is three missed in a row. Lower it to react sooner; raise it if a fleet reports less often.
+drive_quiet_min = 6
+
+# Dead-zone limit: a lone mid-drive silence up to this long is a coverage gap (watched, not acted on); longer
+# needs action. CALIBRATED. Evidence: 221 mid-drive silences with no power alert lasted 21-91 min (median 54),
+# and every one ended with buffered data arriving. Lower it to treat long dead zones as faults sooner; raise
+# it where coverage is worse.
+coverage_gap_max_min = 100
 
 [swap]
-# A unit swapped mid-shift: the new tracker's first-ever position follows the old one's last.
-handover_window_min = 10         # CALIBRATED: in all 5 mid-drive swaps the new unit spoke exactly 2 min after the old one stopped
-handover_distance_km = 3         # CALIBRATED: the two positions were 0.01-0.55 km apart
+# Tracker swap detected: a never-seen tracker whose first position comes within this time and distance of the
+# recorded tracker's last one has replaced it, so the vehicle is still tracked. CALIBRATED. Evidence: in all
+# 5 mid-shift unit swaps the new unit appeared exactly 2 min later, 0.01-0.55 km away (its first VIN-bearing
+# message only came 5-10 h later). Widen them to catch slower swaps; narrow them if unrelated units get matched.
+handover_window_min = 10
+handover_distance_km = 3
 
 [power]
-confirm_after_min = 35           # CALIBRATED: all 10 harmless disconnects were restored within 18-32 min; all 15 real ones sent low-voltage within 14 min
-backup_window_min = 60           # CALIBRATED: the backup battery kept units talking 9-34 min; reports later than this mean power is back
+# Power loss confirmed: after a power-disconnect alert, a backup-battery low-voltage alert, or this long with
+# no restore, is a real power loss. CALIBRATED. Evidence: 25 disconnects; the 15 real ones sent a low-voltage
+# alert 8-14 min later, and the 10 harmless ones were restored after 18-32 min with no low-voltage alert.
+# Lower it to confirm sooner (harmless disconnects start to count); raise it to wait longer.
+confirm_after_min = 35
+
+# Backup battery window: a tracker still reporting this long after a disconnect has power again, even if the
+# restore message was lost. CALIBRATED. Evidence: real power losses kept reporting for 9-34 min on the backup
+# battery (a lost restore message was seen once). Raise it if backup batteries last longer.
+backup_window_min = 60
 
 [camera]
-quiet_min = 12                   # CALIBRATED: a recording camera reports every 5.0 min; 12 min = two missed in a row
-sleep_after_ignition_off_min = 15  # GIVEN: cameras sleep 15 min after ignition off
-wake_grace_min = 10              # CALIBRATED: after a sleep, cameras boot a median 5 s after ignition on
-reboot_settle_min = 15           # CALIBRATED: a successful remote reboot shows "booting" within 1 min of the command
+# Sleeps after ignition off: a camera that goes quiet this long after the ignition turns off is asleep by
+# design. GIVEN: "goes to sleep 15 minutes after the ignition turns off". Evidence: measured as exactly 15.0 min.
+sleep_after_ignition_off_min = 15
+
+# Silent while recording: a camera silent this long while its vehicle drives has a fault. CALIBRATED.
+# Evidence: a recording camera reports every 5.0 min (1st percentile 4.4), so 12 min is two missed in a row.
+quiet_min = 12
+
+# Wake-up allowance: after the ignition turns on, a sleeping camera has this long to start reporting.
+# CALIBRATED. Evidence: the median boot is 5 s after ignition, across 2,723 wake-ups.
+wake_grace_min = 10
+
+# Reboot has failed after: a remote reboot with no sign of life this long afterwards has failed. CALIBRATED.
+# Evidence: reboots that worked showed a boot within a minute of the command (median 40 s).
+reboot_settle_min = 15
 
 [tag]
-# A-series and BX-series battery trackers.
-late_after_h = 25                # CALIBRATED: daily check-ins arrive 23.3-24.7 h apart; customers raised "missed today's check-in" at about 25 h
-battery_low_pct = 10             # CALIBRATED: all 11 battery_low cases went quiet at 8-10 %; tags at 12 % and above kept reporting
-cold_low_c = -10                 # CALIBRATED: healthy tags only skipped check-ins on nights at -10 C or colder
-cold_max_missed_days = 5         # CALIBRATED: the longest cold-weather silence in the history was 3 missed check-ins; 5 leaves a margin
-downtime_peer_fraction = 0.5     # CALIBRATED: all 12 landscaping trailers stopped on the same day (Oct 23)
+# A-series and BX-series battery tags, which check in once a day.
+
+# Check-in late: a tag silent this long has missed its daily check-in. CALIBRATED. Evidence: check-ins are
+# 23.3-24.7 h apart, and customers raised "missed today's check-in" cases at about 25 h.
+late_after_h = 25
+
+# Battery low: at or below this, a tag needs a new battery, and a missed check-in is put down to the battery
+# even after a cold night. CALIBRATED. Evidence: 11 tags that went silent needed a new battery; the last
+# reading before each was 8 % or 10 %. Of 33 silences that ended by themselves, the lowest prior reading was 17 %.
+battery_low_pct = 10
+
+# Cold night: a missed check-in after a night this cold or colder is expected, not a fault. CALIBRATED.
+# Evidence: all 33 self-ending silences followed nights at -10 C or colder; no healthy tag missed a check-in
+# on a warmer night. (A date's low in weather.csv is that morning's overnight low.)
+cold_low_c = -10
+
+# Longest cold excuse: after this many missed check-ins, cold no longer explains the silence. CALIBRATED.
+# Evidence: the longest cold silence was 3 missed check-ins.
+cold_max_missed_days = 5
+
+# Planned downtime: a tag that stops on the same day as at least this share (and this many) of its seasonal
+# group is put away for the season (see [seasonal_downtime]). CALIBRATED. Evidence: all 12 landscaping
+# trailers stopped on October 23 with healthy batteries (40-84 %) in mild weather.
+downtime_peer_fraction = 0.5
 downtime_peer_min = 3
 
 [outage]
-# A carrier outage = many driving trackers on one carrier at one depot silent together.
-min_devices = 4                  # CALIBRATED: outside the two real outages, at most 3 were ever silent together
-min_fraction = 0.6               # CALIBRATED: in both real outages 100 % of driving trackers on that carrier and depot went silent
+# A carrier outage = many driving trackers on one carrier at one depot silent together. It is said once, and
+# nothing is moved because of it.
+
+# Minimum devices: at least this many must go silent together. CALIBRATED. Evidence: the two real outages
+# peaked at 39 and 31 silent trackers; on every other occasion in 28 days the most was 3.
+min_devices = 4
+
+# Minimum share of the carrier at that depot that must go silent. CALIBRATED. Evidence: 100 % went silent in
+# both real outages; 60 % leaves room for a vehicle that happens to be parked or roaming.
+min_fraction = 0.6
+
+# Silent together within: the silences must start within this window. CALIBRATED. Evidence: on October 12
+# every affected tracker went silent within 2 minutes; 30 min tolerates a ragged start.
 cluster_window_min = 30
+
+# How far back to look for an outage that may still explain a silence.
 lookback_h = 24
 
 [jobcover]
@@ -106,6 +185,7 @@ utc_offset_h = -6                # GIVEN: Central Standard Time all year
 observes_dst = false
 
 [seasonal_downtime]
-# Asset "use" values that are off-season between these local dates (MM-DD).
-# CALIBRATED: every landscaping trailer stopped checking in on Oct 23 with a healthy battery.
+# Seasonal downtime: asset "use" values that are off-season between these local dates (MM-DD).
+# CALIBRATED. Evidence: all 12 landscaping trailers stopped on October 23 with healthy batteries. The season's
+# end date is an assumption (the history ends in October); add or change groups here.
 landscaping = { from = "10-15", to = "04-15" }
