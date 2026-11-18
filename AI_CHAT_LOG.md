@@ -10,8 +10,10 @@ it to Claude Opus 5.5 on 2026-11-17.
 - **Actions** blocks list the tools Claude ran between replies (one line each). Tool output, file contents
   and the harness's automatic reminders are left out.
 
-31 user messages, 84 Claude replies, 2026-11-16 18:21:32 to 2026-11-18 22:38:23. This is a snapshot: anything
+31 user messages, 85 Claude replies, 2026-11-16 18:21:32 to 2026-11-18 22:39:06. This is a snapshot: anything
 said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh.
+
+A message the user pasted in by mistake, unrelated to this project, is left out at the user's request; messages that refer to it call it "the left-out message".
 
 ---
 
@@ -1836,5 +1838,16 @@ refresh the chat log without the left-out message (accidental)
 - Bash: Keep the short requests, drop only the pasted message, regenerate and check
 - Bash: Show the header note logic
 - Bash: Always disclose the omission in the header, regenerate, commit and push
+
+</details>
+
+## Claude · 2026-11-18 22:39:04
+
+The header edit didn't apply (a quoting mismatch in my patch), but the commit went through without it. I'm fixing the header line directly and committing again:
+
+<details><summary>Actions (2)</summary>
+
+- Edit: C:\dev\fleetsilence\tools\export_chat.py
+- Bash: Regenerate with the disclosure line, check, commit and push
 
 </details>

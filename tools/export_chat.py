@@ -84,8 +84,8 @@ for ts, role, text in rows:                      # fold consecutive tool-call no
 
 n_user = sum(r[1] == "user" for r in merged)
 n_ai = sum(r[1] == "assistant" for r in merged)
-omitted = ("\n\n" + f"{left_out} user message{'s' if left_out != 1 else ''} pasted in by mistake and unrelated"
-           " to this project " + ("was" if left_out == 1 else "were") + " left out at the user's request.") if left_out else ""
+omitted = ("\n\nA message the user pasted in by mistake, unrelated to this project, is left out at the user's"
+           " request; messages that refer to it call it \"the left-out message\".") if exclude else ""
 head = f"""# AI chat log
 
 Every message between the user and Claude Code in the sessions that built this service, in order,
