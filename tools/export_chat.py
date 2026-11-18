@@ -2,8 +2,8 @@
 
     python3 tools/export_chat.py AI_CHAT_LOG.md SESSION1.jsonl [SESSION2.jsonl ...] [--exclude TEXT ...]
 
---exclude TEXT leaves out every user message that contains TEXT (case-insensitive), for messages the user
-asks to keep out of the log. The header says how many were left out.
+--exclude TEXT leaves out every long user message (over 400 characters) that contains TEXT (case-insensitive),
+for a pasted message the user asks to keep out of the log; TEXT is scrubbed from everything else. The header says how many were left out.
 
 The session files live under ~/.claude/projects/<project>/. Only the user's and Claude's own words are
 kept, plus one line per tool call; the Windows user name in file paths is replaced with <user>.
@@ -64,7 +64,9 @@ for f in files:
                 what = i.get("description") or i.get("file_path") or i.get("pattern") or i.get("name") or i.get("recap") or ""
                 tools.append(f"{b.get('name', '').split('__')[-1]}" + (f": {str(what)[:140]}" if what else ""))
         role = o["type"]
-        if role == "user" and exclude and any(x in t.lower() for t in texts for x in exclude):
+        # Drop the pasted message itself (long). A short message that only mentions it, such as the request
+        # to leave it out, stays; the phrase in it is scrubbed by redact() like everywhere else.
+        if role == "user" and exclude and any(x in t.lower() and len(t) > 400 for t in texts for x in exclude):
             left_out += 1
             continue
         if texts:

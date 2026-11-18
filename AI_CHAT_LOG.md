@@ -10,10 +10,8 @@ it to Claude Opus 5.5 on 2026-11-17.
 - **Actions** blocks list the tools Claude ran between replies (one line each). Tool output, file contents
   and the harness's automatic reminders are left out.
 
-29 user messages, 84 Claude replies, 2026-11-16 18:21:32 to 2026-11-18 22:38:23. This is a snapshot: anything
+31 user messages, 84 Claude replies, 2026-11-16 18:21:32 to 2026-11-18 22:38:23. This is a snapshot: anything
 said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh.
-
-2 user messages pasted in by mistake and unrelated to this project were left out at the user's request.
 
 ---
 
@@ -1597,6 +1595,10 @@ It also writes a scenario with six incidents and their correct answers. I graded
 
 The real pack's exam has only run on Windows. `AI_CHAT_LOG.md` doesn't include today's turns, so re-run `tools/export_chat.py` before you submit.
 
+## User · 2026-11-17 18:42:24
+
+refresh the chat log but make sure that the left-out message isnt in there
+
 <details><summary>Actions (8)</summary>
 
 - Bash: List the saved session files and count where the left-out message appears
@@ -1823,8 +1825,16 @@ For Mississauga over 72 hours, all 12 at-risk jobs are now swaps, with none kept
 - **Chat log:** refresh `AI_CHAT_LOG.md` with `--exclude "the left-out message"`. Your local edit to that file is still uncommitted, and the refresh will overwrite it.
 - **Make the repo public,** last.
 
-<details><summary>Actions (1)</summary>
+## User · 2026-11-18 22:38:18
+
+refresh the chat log without the left-out message (accidental)
+
+<details><summary>Actions (5)</summary>
 
 - Bash: Regenerate the chat log without the accidental message, check it, commit and push
+- Bash: Show the exclusion rule in the export script
+- Bash: Keep the short requests, drop only the pasted message, regenerate and check
+- Bash: Show the header note logic
+- Bash: Always disclose the omission in the header, regenerate, commit and push
 
 </details>
