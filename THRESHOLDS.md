@@ -72,6 +72,11 @@ faulted camera regardless.
 
 ## Job cover: when a job is kept on its vehicle
 
+**Switched off by the ops lead (2026-11-18):** jobs are planned with what is known when the decision is made,
+so `jobcover.keep_when_fix_expected = false` and these figures are not used. They are kept for the record.
+The same answer turned off `jobcover.camera_less_fallback_when_untracked`: a replacement must be seen and
+recorded.
+
 | Setting | Value | Source | Evidence |
 |---|---|---|---|
 | `jobcover.remote_reboot_fix_min` | 90 | Calibrated | 40 `camera_fault` cases: 28 fixed by a remote reboot, all closed within 1.1 h of opening (median 0.5 h); 12 needed a technician after the reboot failed twice. Used only while no reboot has failed yet. |

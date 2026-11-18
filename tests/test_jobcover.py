@@ -129,12 +129,19 @@ class TimingTest(unittest.TestCase):
         self.assertIn("ask again nearer the time", got["J-later"])
 
 
+def keep_app(**kw):
+    """An app with the optional keep rule switched on (the ops lead turned it off; these test the rule itself)."""
+    app = make_app(**kw)
+    app.cfg["jobcover"] = dict(app.cfg["jobcover"], keep_when_fix_expected=True)
+    return app
+
+
 class KeepTest(unittest.TestCase):
-    """AT is Tuesday 08:00 in Mississauga. A technician fix is counted on by Wednesday 14:00 local (18:00 UTC)."""
+    """With keep on. AT is Tuesday 08:00 in Mississauga; a technician fix is counted on by Wednesday 14:00 local."""
     WED_14 = T0 + 30 * HOUR
 
     def test_a_job_after_the_technician_visit_stays_on_the_vehicle_and_earlier_ones_move(self):
-        app = make_app(jobs=[("J-today", "K-1", *JOB),
+        app = keep_app(jobs=[("J-today", "K-1", *JOB),
                              ("J-wed-am", "K-1", self.WED_14 - 4 * HOUR, self.WED_14 - 2 * HOUR),
                              ("J-wed-pm", "K-1", self.WED_14 + 30 * MIN, self.WED_14 + 2 * HOUR)])
         healthy_fleet(app, AT, skip={"T-21"})
@@ -150,7 +157,7 @@ class KeepTest(unittest.TestCase):
     def test_a_friday_fault_is_not_counted_as_fixed_until_monday(self):
         fri = T0 + 3 * 86400 + 8 * HOUR                    # Friday 16:00
         mon_14 = fri + 3 * 86400 - 2 * HOUR
-        app = make_app(jobs=[("J-sat", "K-1", fri + 20 * HOUR, fri + 22 * HOUR),
+        app = keep_app(jobs=[("J-sat", "K-1", fri + 20 * HOUR, fri + 22 * HOUR),
                              ("J-mon", "K-1", mon_14 + 30 * MIN, mon_14 + 90 * MIN)])
         healthy_fleet(app, fri, skip={"T-21"})
         app.ingest({"events": power_loss("T-21", fri)})
@@ -158,7 +165,7 @@ class KeepTest(unittest.TestCase):
         self.assertEqual(got, {"J-sat": "swap", "J-mon": "keep"})
 
     def test_camera_fault_keeps_a_later_job_while_a_reboot_can_still_fix_it(self):
-        app = make_app(jobs=[("J-soon", "V-1", AT + 30 * MIN, AT + HOUR), ("J-later", "V-1", AT + 3 * HOUR, AT + 4 * HOUR)])
+        app = keep_app(jobs=[("J-soon", "V-1", AT + 30 * MIN, AT + HOUR), ("J-later", "V-1", AT + 3 * HOUR, AT + 4 * HOUR)])
         healthy_fleet(app, AT, skip={"C-1"})
         fault = ev("C-1", "camera_status", AT - 20 * MIN, {"status": "storage_error", "code": "SD_WRITE_FAIL"})
         app.ingest({"events": [fault]})
@@ -173,7 +180,7 @@ class KeepTest(unittest.TestCase):
     def test_the_fix_is_counted_from_when_the_fault_began_and_an_overdue_one_keeps_nothing(self):
         # Power lost Monday 07:00: a visit is normally done by Tuesday 14:00. Asked on Wednesday, it is overdue.
         wed = AT + 86400
-        app = make_app(jobs=[("J-thu", "K-1", wed + 30 * HOUR, wed + 32 * HOUR)])
+        app = keep_app(jobs=[("J-thu", "K-1", wed + 30 * HOUR, wed + 32 * HOUR)])
         healthy_fleet(app, wed, skip={"T-21"})
         app.ingest({"events": power_loss("T-21", AT - 86400)})
         (job,) = cover(app, wed, hours=48)["jobs"]
@@ -181,20 +188,28 @@ class KeepTest(unittest.TestCase):
         self.assertIn("it has not happened", " ".join(job["reasons"]))
 
     def test_a_camera_fault_nobody_has_rebooted_for_hours_keeps_nothing(self):
-        app = make_app(jobs=[("J-later", "V-1", AT + 5 * HOUR, AT + 6 * HOUR)])
+        app = keep_app(jobs=[("J-later", "V-1", AT + 5 * HOUR, AT + 6 * HOUR)])
         healthy_fleet(app, AT, skip={"C-1"})
         app.ingest({"events": [ev("C-1", "camera_status", AT - 3 * HOUR, {"status": "storage_error"})]})
         (job,) = cover(app, AT)["jobs"]
         self.assertEqual(job["decision"], "swap")
         self.assertIn("still not fixed", " ".join(job["reasons"]))
 
-    def test_keep_can_be_switched_off(self):
+    def test_by_default_a_job_is_never_kept_on_a_vehicle_that_cant_be_seen(self):
+        # Ops lead: plan with what we know; a job stays only once the device is reporting again.
         app = make_app(jobs=[("J-wed-pm", "K-1", self.WED_14 + 30 * MIN, self.WED_14 + 2 * HOUR)])
-        app.cfg["jobcover"] = dict(app.cfg["jobcover"], keep_when_fix_expected=False)
+        self.assertFalse(app.cfg["jobcover"]["keep_when_fix_expected"])
         healthy_fleet(app, AT, skip={"T-21"})
         app.ingest({"events": power_loss("T-21", AT)})
         (job,) = cover(app, AT, hours=48)["jobs"]
-        self.assertEqual(job["decision"], "swap")
+        self.assertEqual((job["decision"], job["swap_to"]), ("swap", "K-2"))
+
+    def test_once_the_device_reports_again_the_job_is_not_listed(self):
+        app = make_app(jobs=[("J-wed-pm", "K-1", self.WED_14 + 30 * MIN, self.WED_14 + 2 * HOUR)])
+        healthy_fleet(app, AT, skip={"T-21"})
+        app.ingest({"events": power_loss("T-21", AT) + [ev("T-21", "power_restore", AT + 2 * HOUR),
+                                                       ev("T-21", "heartbeat", AT + 2 * HOUR + 60)]})
+        self.assertEqual(cover(app, AT + 3 * HOUR, hours=48)["jobs"], [])
 
 
 class DeadZoneTest(unittest.TestCase):
@@ -236,9 +251,20 @@ class VideoTest(unittest.TestCase):
         self.camera_fault(app)
         job = next(j for j in cover(app, AT)["jobs"] if j["job_id"] == "J-1")
         self.assertEqual((job["problem"], job["decision"], job["swap_to"]), ("no_video", "gap", None))
+        self.assertIn("runs on V-1 as planned, unrecorded", job["manager_action"])
 
-    def test_untrackable_camera_van_falls_back_to_a_tracked_van_without_a_camera(self):
+    def test_untrackable_camera_van_stays_on_its_van_when_only_camera_less_vans_are_free(self):
+        # Ops lead: a replacement must be seen and recorded; if none is free the job runs on the original van.
         app = make_app(jobs=self.busy_camera_vans("V-1"))
+        healthy_fleet(app, AT, skip={"T-1"})
+        app.ingest({"events": power_loss("T-1", AT)})
+        job = next(j for j in cover(app, AT)["jobs"] if j["job_id"] == "J-1")
+        self.assertEqual((job["problem"], job["decision"], job["swap_to"]), ("no_location", "gap", None))
+        self.assertIn("runs on V-1 as planned, untracked", job["manager_action"])
+
+    def test_camera_less_fallback_can_be_switched_on(self):
+        app = make_app(jobs=self.busy_camera_vans("V-1"))
+        app.cfg["jobcover"] = dict(app.cfg["jobcover"], camera_less_fallback_when_untracked=True)
         healthy_fleet(app, AT, skip={"T-1"})
         app.ingest({"events": power_loss("T-1", AT)})
         job = next(j for j in cover(app, AT)["jobs"] if j["job_id"] == "J-1")

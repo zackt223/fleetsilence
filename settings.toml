@@ -64,13 +64,19 @@ cluster_window_min = 30
 lookback_h = 24
 
 [jobcover]
+# CONFIRMED by the ops lead (2026-11-18): "Every job should be recorded, so it goes to a free van at the same
+# depot that can be seen and recorded. If no van is free, the job still runs on the original van, unrecorded."
 require_working_camera_for_camera_vans = true
-# If a camera van can't be TRACKED and no camera van is free, move the job to a van without a camera
-# (tracked but not recorded) rather than leave a gap. Never used for a recording-only problem.
-camera_less_fallback_when_untracked = true
+# Off, following the same answer: a replacement must be seen AND recorded. If a camera van can't be tracked and
+# only vans without a camera are free, the job stays on its own van (recorded, not tracked) as a gap.
+# true = move it to a van without a camera instead (tracked, not recorded).
+camera_less_fallback_when_untracked = false
 prefer_same_use = true
 # Leave a job on its vehicle (decision "keep") when the fault should be fixed before the job starts.
-keep_when_fix_expected = true
+# CONFIRMED OFF by the ops lead (2026-11-18): "We plan with what we know when we decide. If the vehicle still can't
+# be seen or recorded at that point, the job moves. A job stays on a vehicle only once the problem is actually
+# fixed and the device is reporting again." The three settings below are used only when this is true.
+keep_when_fix_expected = false
 # CALIBRATED: all 28 camera faults that a remote reboot fixed were closed within 1.1 h of the case opening.
 # Used only while no reboot has failed yet; after a failed reboot the camera is treated as needing a technician.
 remote_reboot_fix_min = 90

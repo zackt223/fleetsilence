@@ -7,10 +7,11 @@ or say plainly that none can and why.
 Rules built in here:
 * Missing a real problem is worse than a false alarm, so a confirmed fault is
   flagged for every job in the window, however far ahead.
-* A job is moved (`swap`), reported as having no replacement (`gap`), or left
-  where it is (`keep`) when the fault is expected to be fixed before it starts:
-  a remote reboot within about an hour, or a technician visit the next working
-  day. How fast each fix happens is taken from the case history (settings).
+* A job is moved (`swap`) or, when no vehicle is free, reported as a `gap`: it
+  then runs on its own vehicle, untracked or unrecorded. Decisions use what is
+  known at `at` (ops lead, 2026-11-18). A `keep` rule that bets on a fix
+  arriving before the job exists behind `jobcover.keep_when_fix_expected`,
+  which is off.
 * A wrong swap costs the crew time, so a swap is only offered to a vehicle of
   the same type and depot that is free for the job's whole slot and is itself
   visibly healthy - anything silent, unexplained or inside a carrier outage is
@@ -30,6 +31,7 @@ from .timeutil import duration, iso
 
 NOT_THE_VEHICLE = ("carrier_outage",)     # causes that nothing done to the vehicle can fix
 BLIND = {"no_location": "untracked", "no_video": "unrecorded", "both": "untracked and unrecorded"}
+SEEN = {"no_location": "tracked", "no_video": "recorded", "both": "tracked and recorded"}
 
 
 class Health:
@@ -156,9 +158,10 @@ class JobCover:
                 item["reasons"].append(f"No {kind} at {snap.depot_name(job.depot)} can take this job: of the {others},"
                                        f" {detail}.{tail}")
                 blind = BLIND[h.problem]
+                # Ops lead: if no vehicle is free, the job still runs on the original vehicle.
                 item["manager_action"] = (
-                    f"No replacement for {job.job_id} ({slot}). Reschedule it, or get {job.asset_id} fixed before then;"
-                    f" otherwise it goes out {blind}.")
+                    f"No free vehicle can take {job.job_id} ({slot}), so it runs on {job.asset_id} as planned, {blind}."
+                    f" If {job.asset_id} is fixed and reporting before then, it will be {SEEN[h.problem]} after all.")
             if job.start - at > lead:
                 # Both vehicles are judged on what is known now. Nobody can know their state at the job's start.
                 item["manager_action"] += (f" The job starts in {duration(job.start - at)}; this is based on what is"

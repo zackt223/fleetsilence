@@ -143,38 +143,25 @@ a one-word setting in `settings.toml` under `[status]`: whether a parked tracker
 - `swap`: to a vehicle of the same type and depot, with no other job at any point in the slot, that is
   itself tracked and (for a camera van) recorded. One replacement is never given overlapping jobs, and all
   the jobs of one troubled vehicle go to the same replacement where possible, so the crew changes vehicle once.
-- A camera van moves to another van with a working camera. If none is free and the problem is tracking,
-  it falls back to a van without a camera (tracked but not recorded beats blind) and says so. A
-  recording-only problem never falls back: that swap would fix nothing.
+- A camera van moves only to another van with a working camera: every job should be recorded, and the
+  replacement must be seen **and** recorded (ops lead, 2026-11-18). A van whose camera can't record (a
+  fault or a paused video plan) has its job moved even though its tracker works.
 - Replacements are shared out so the most jobs are covered. If the only vehicle a job could use was already
   given to an earlier job, the earlier job is moved to another free vehicle where it has one
   (`jobcover.reshuffle_depth`).
 - Both vehicles are judged on what is known at `at`; nobody can know their state at the job's start. A job
   more than `jobcover.recheck_lead_h` (12) hours ahead says so in `manager_action`.
-- `keep`: the job stays on its vehicle because the fault should be fixed before the job starts. The data
-  has no feed of planned repairs, so the service estimates the fix time from the support-case history:
+- `gap`: no vehicle qualifies. The job then runs on its own vehicle as planned, untracked or unrecorded,
+  and `manager_action` says so. The reason counts why no other vehicle qualifies: how many are busy,
+  covering another moved job, unhealthy, on a dead carrier, or have no camera.
+- `keep` is never answered. The ops lead (2026-11-18): *"We plan with what we know when we decide. If the
+  vehicle still can't be seen or recorded at that point, the job moves. A job stays on a vehicle only once
+  the problem is actually fixed and the device is reporting again."* A job on a vehicle that is reporting
+  again is no longer at risk, so it isn't listed at all.
 
-  | Fault | Expected fixed by | Evidence in the case history |
-  |---|---|---|
-  | Camera fault, no failed reboot yet | 90 min after `at` (`remote_reboot_fix_min`) | All 28 camera faults fixed by a reboot closed within 1.1 h |
-  | Anything that needs a technician: power loss, unexplained silence, a camera after a failed reboot | 14:00 local on the next working day (`technician_done_by_local`, `technician_works_weekends`) | All 26 vehicle visits were the next working day, never at a weekend, and finished by 13:45 |
-  | Paused data plan | never kept | These took 30 to 62 h to resolve |
-
-  The expected fix is counted from when the fault **began**, not from when you ask. A job that starts
-  before the expected fix is still moved (or is a `gap`); only jobs after it are kept. With two faults on
-  one vehicle, the later fix counts. The kept job's `manager_action` says when the fix is due and to ask
-  again if it has not happened.
-
-  Once that time has passed with the fault still there (no reboot tried within 90 minutes, or no visit by
-  14:00 the next working day), the fix is overdue. Nothing on that vehicle is kept any more: its jobs are
-  moved or listed as gaps, and the reasons say the expected fix did not happen. So a fault nobody acts on
-  can't keep jobs on a broken vehicle day after day.
-
-  The reboot keep is a bet: 12 of the 40 camera faults in the history were not fixed by a reboot and
-  needed a technician the next day. Turn `keep` off with `jobcover.keep_when_fix_expected = false`, and
-  the service goes back to moving every at-risk job it can.
-- `gap`: no vehicle qualifies. The reason counts why: how many are busy, covering another moved job,
-  unhealthy, on a dead carrier, or have no camera.
+  An optional rule that keeps a job when a fix is expected before it starts (a reboot within 90 minutes,
+  a technician by 14:00 the next working day, figures from the case history in `THRESHOLDS.md`) is still
+  in the code behind `jobcover.keep_when_fix_expected`, which is `false`.
 - Carrier outage: nothing is moved, and jobs on affected vehicles are not listed under `jobs` (the network
   is down, not the vehicles). The outage is said once, in `notices`. Vehicles on the affected carrier are
   not offered as replacements until it is back.
