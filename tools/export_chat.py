@@ -2,6 +2,10 @@
 
     python3 tools/export_chat.py AI_CHAT_LOG.md SESSION1.jsonl [SESSION2.jsonl ...] [--exclude TEXT ...]
 
+--append-from TEXT appends one exchange to the existing log instead of rewriting it: the first user message that
+starts with TEXT (case-insensitive) and everything Claude said and ran until the next user message. A note
+before it says that the messages in between are not included.
+
 --exclude TEXT leaves out every long user message (over 400 characters) that contains TEXT (case-insensitive),
 for a pasted message the user asks to keep out of the log; TEXT is scrubbed from everything else. The header says how many were left out.
 
@@ -11,15 +15,23 @@ kept, plus one line per tool call; the Windows user name in file paths is replac
 import json, re, sys
 
 args = sys.argv[1:]
+VALUED = ("--exclude", "--append-from")
 exclude = [args[i + 1].lower() for i, a in enumerate(args) if a == "--exclude"]
-args = [a for i, a in enumerate(args) if a != "--exclude" and (i == 0 or args[i - 1] != "--exclude")]
+append_from = next((args[i + 1].lower() for i, a in enumerate(args) if a == "--append-from"), None)
+args = [a for i, a in enumerate(args) if a not in VALUED and (i == 0 or args[i - 1] not in VALUED)]
 out_path, files = args[0], args[1:]
 left_out = 0
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 seen, rows = set(), []
 
 
+PASTE_OPEN = re.compile(r"<pasted_content[^>]*>\n?")
+PASTE_CLOSE = re.compile(r"\n?</pasted_content[^>]*>")
+
+
 def clean(text):
+    # Text the user pasted in keeps its exact content; the app's wrapper tags become a plain-text block.
+    text = PASTE_CLOSE.sub("\n```", PASTE_OPEN.sub("```text\n", text))
     return REMINDER.sub("", text).strip()
 
 
@@ -82,6 +94,31 @@ for ts, role, text in rows:                      # fold consecutive tool-call no
     else:
         merged.append((ts, role, text))
 
+def render(blocks):
+    label = {"user": "User", "assistant": "Claude", "tools": "Actions", "note": "Note"}
+    out = []
+    for ts, role, text in blocks:
+        if role == "tools":
+            out.append(f"<details><summary>Actions ({text.count(chr(10)) + 1})</summary>\n\n{text}\n\n</details>\n")
+        elif role == "note":
+            out.append(text + "\n")
+        else:
+            out.append(f"## {label[role]} · {ts}\n\n{text}\n")
+    return "\n".join(out)
+
+
+if append_from:
+    start = next(i for i, r in enumerate(merged) if r[1] == "user" and r[2].lower().startswith(append_from))
+    end = next((i for i in range(start + 1, len(merged)) if merged[i][1] == "user"), len(merged))
+    pick = merged[start:end]
+    note = ("\n---\n\n_Added at the user's request: the one exchange below, word for word. The messages between the"
+            " snapshot above and this exchange are not included._\n\n")
+    with open(out_path, "a", encoding="utf-8", newline="\n") as f:
+        f.write(redact(note + render(pick)))
+    print("appended", len(pick), "blocks:", sum(r[1] == "user" for r in pick), "user,",
+          sum(r[1] == "assistant" for r in pick), "assistant")
+    sys.exit(0)
+
 n_user = sum(r[1] == "user" for r in merged)
 n_ai = sum(r[1] == "assistant" for r in merged)
 omitted = ("\n\nA message the user pasted in by mistake, unrelated to this project, is left out at the user's"
@@ -103,14 +140,5 @@ said after the last entry is not in it. Re-run `tools/export_chat.py` to refresh
 
 ---
 """
-label = {"user": "User", "assistant": "Claude", "tools": "Actions", "note": "Note"}
-body = []
-for ts, role, text in merged:
-    if role == "tools":
-        body.append(f"<details><summary>Actions ({text.count(chr(10)) + 1})</summary>\n\n{text}\n\n</details>\n")
-    elif role == "note":
-        body.append(text + "\n")
-    else:
-        body.append(f"## {label[role]} · {ts}\n\n{text}\n")
-open(out_path, "w", encoding="utf-8", newline="\n").write(redact(head + "\n" + "\n".join(body)))
+open(out_path, "w", encoding="utf-8", newline="\n").write(redact(head + "\n" + render(merged)))
 print(len(merged), "blocks;", n_user, "user;", n_ai, "assistant")

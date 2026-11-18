@@ -1851,3 +1851,130 @@ The header edit didn't apply (a quoting mismatch in my patch), but the commit we
 - Bash: Regenerate with the disclosure line, check, commit and push
 
 </details>
+
+---
+
+_Added at the user's request: the one exchange below, word for word. The messages between the snapshot above and this exchange are not included._
+
+## User · 2026-11-18 23:11:31
+
+after confirming, i need you to adjust the thresholds set and include the evidence so it could be adjusted later on if needed
+
+Heartbeat Interval, 4h, given. 
+Heartbeat late, 4h 30m, given
+Silent while driving, 6min, positions arrive every 2.0 min 
+Dead zone limit, 100 mins
+Power loss confirmed, low voltage alert or 35 min with no restore, 25 disconnects: the 15 real ones sent a low voltage alert 8-14 min later, and the 10 harmless ones were restored after 18–32 mins
+Backup battery window, 60 mins, real power losses kept reporting for 9-34 mins
+Tracker swap detected, new unit within 10 mins and 3 kms
+
+```text
+Carrier outages
+
+Threshold	Value	Evidence
+Minimum devices	4	The two real outages peaked at 39 and 31 silent trackers; on every other occasion the most was 3.
+Minimum share of the carrier at that depot	60%	100% went silent in both real outages.
+Silent together within	30 min	On October 12 every affected tracker went silent within 2 minutes.
+
+Cameras
+
+Threshold	Value	Evidence
+Sleeps after ignition off	15 min	Given, and measured as exactly 15.0 min.
+Silent while recording	12 min	A recording camera reports every 5.0 min, so this is two missed in a row.
+Wake-up allowance	10 min	Median boot is 5 s after ignition, across 2,723 wake-ups.
+Reboot has failed after	15 min	Reboots that worked showed a boot within a minute (median 40 s).
+
+Battery tags
+
+Threshold	Value	Evidence
+Check-in late	25 h	Check-ins are 23.3–24.7 h apart.
+Battery low	10% or below	11 tags that went silent needed a new battery; the last reading before each was 8% or 10%. Of 33 silences that ended by themselves, the lowest prior reading was 17%.
+Cold night	−10 °C or colder	All 33 self-ending silences followed nights at −10 °C or colder.
+Longest cold excuse	5 missed check-ins	The longest cold silence was 3.
+Seasonal downtime	landscaping, October 15 to April 15	All 12 landscaping trailers stopped on October 23 with healthy batteries.
+
+Ingest
+
+Threshold	Value	Evidence
+Counts as late	over 120 s	98.8% of events arrive within 2 min.
+Device clock ahead	allow 10 min	No device clock in the history was ahead.
+Device clock behind	over 24 h means a wrong clock	The latest buffered event arrived 90 min late.
+```
+
+<details><summary>Actions (2)</summary>
+
+- Bash: Read the current settings file
+- update_plan
+
+</details>
+
+## Claude · 2026-11-18, between 23:11:31 and 23:12:16
+
+_This reply is missing from the saved transcript; it is restored word for word from the conversation._
+
+Every value you listed already matches `settings.toml`, so no number changes. What's missing is the evidence and the effect of changing each one, sitting right next to the setting. Some comments are thin (the outage window has none) and they're inconsistent. I'm rewriting each listed threshold in the same format: what it controls, the value, its source, the evidence, and what raising or lowering it does. Then I'll check that no parsed value changed.
+
+<details><summary>Actions (2)</summary>
+
+- Bash: Rewrite each threshold with its evidence and confirm no setting's value changed
+- update_plan
+
+</details>
+
+## Claude · 2026-11-18 23:12:16
+
+That command failed before running: a quoting mistake in my check line, so `settings.toml` wasn't touched. I'm putting the rewrite in a script file and running it cleanly:
+
+<details><summary>Actions (3)</summary>
+
+- Bash: Confirm settings.toml was not modified by the failed command
+- Write: C:\Users\<user>\AppData\Local\Temp\claude\e9b0cfdf7d8d6a26\c04e6f97-b8a0-491f-8a39-9789d8161e8c\scratchpad\settings_evidence.py
+- Bash: Rewrite settings.toml with evidence, confirm values are unchanged, run the tests
+
+</details>
+
+## Claude · 2026-11-18 23:13:04
+
+Every value is identical to before (checked by parsing both files), and all 76 tests pass. Running the official practice exam in a terminal tab as a final check:
+
+<details><summary>Actions (10)</summary>
+
+- list_terminal_tabs
+- stop_terminal_tab
+- stop_terminal_tab
+- run_in_terminal
+- run_in_terminal
+- read_terminal
+- stop_terminal_tab
+- Bash: Commit and push the documented settings file
+- update_plan
+- wrap_up: settings.toml now gives every threshold you listed its value, source, evidence and the effect of changing it; no value changed. Pushed as co
+
+</details>
+
+## Claude · 2026-11-18 23:13:41
+
+Every threshold you listed is now written into `settings.toml` with its value, source and evidence, plus what raising or lowering it does. That way anyone can adjust one later without opening another file. Pushed as commit `1496610`.
+
+**No value changed.** Every number you listed already matched what the service uses. Before saving, the script compared the old and new files value by value; they're identical, so the change is documentation only. All 76 tests still pass, and the official practice exam still scores 17 of 17 in tab 8.
+
+**How each setting reads now.** For example:
+
+```toml
+# Power loss confirmed: after a power-disconnect alert, a backup-battery low-voltage alert, or this long with
+# no restore, is a real power loss. CALIBRATED. Evidence: 25 disconnects; the 15 real ones sent a low-voltage
+# alert 8-14 min later, and the 10 harmless ones were restored after 18-32 min with no low-voltage alert.
+# Lower it to confirm sooner (harmless disconnects start to count); raise it to wait longer.
+confirm_after_min = 35
+```
+
+**Covered:**
+- **Trackers:** heartbeat interval and late limit, silent while driving, dead-zone limit, power loss confirmed, backup battery window, tracker swap.
+- **Carrier outages:** minimum devices, minimum share, silent-together window. The window had no evidence written before.
+- **Cameras:** sleep after ignition off, silent while recording, wake-up allowance, reboot has failed.
+- **Battery tags:** check-in late, battery low, cold night, longest cold excuse, seasonal downtime.
+- **Ingest:** counts as late, device clock ahead, device clock behind.
+
+The top of the file explains the GIVEN and CALIBRATED labels, and that `tools/calibrate.py` recomputes the evidence from a new history.
+
+**One note added:** the landscaping season's end date (April 15) is marked as an assumption, because the history only covers October.
